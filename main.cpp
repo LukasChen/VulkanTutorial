@@ -21,17 +21,20 @@ import vulkan_hpp;
 #include <iostream>
 #include <stdexcept>
 
-const uint32_t WIDTH  = 800;
-const uint32_t HEIGHT = 600;
+constexpr uint32_t WIDTH  = 800;
+constexpr uint32_t HEIGHT = 600;
 const std::vector<char const*> validationLayers = {
 	"VK_LAYER_KHRONOS_validation"
 };
+
+constexpr int MAX_FRAMES_IN_FLIGHT = 2;
 
 #ifdef NDEBUG
 constexpr bool enableValidationLayers = false;
 #else
 constexpr bool enableValidationLayers = true;
 #endif
+
 
 class HelloTriangleApplication
 {
@@ -61,20 +64,29 @@ class HelloTriangleApplication
 	vk::raii::PipelineLayout m_pipelineLayout = nullptr;
 	vk::raii::Pipeline m_graphicsPipeline = nullptr;
 	vk::raii::CommandPool m_commandPool = nullptr;
-	vk::raii::CommandBuffer m_commandBuffer = nullptr;
-	vk::raii::Semaphore m_presentCompleteSemaphore = nullptr;
-	vk::raii::Semaphore m_renderFinishedSemaphore = nullptr;
-	vk::raii::Fence m_drawFence = nullptr;
-
+	std::vector<vk::raii::CommandBuffer> m_commandBuffers;
+	std::vector<vk::raii::Semaphore> m_presentCompleteSemaphores;
+	std::vector<vk::raii::Semaphore> m_renderFinishedSemaphores;
+	std::vector<vk::raii::Fence> m_inFlightFences;
+	uint32_t m_frameIndex = 0;
+	bool m_framebufferResized = false;
 
 	void initWindow()
 	{
 		glfwInit();
 
 		glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-		glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
 
 		window = glfwCreateWindow(WIDTH, HEIGHT, "Vulkan", nullptr, nullptr);
+		glfwSetWindowUserPointer(window, this);
+		// the callback has to be static so it can be called from the callback
+		// we set this as window
+		glfwSetFramebufferSizeCallback(window, framebufferResizeCallback);
+	}
+
+	static void framebufferResizeCallback(GLFWwindow* window, int width, int height) {
+		auto app = reinterpret_cast<HelloTriangleApplication*>(glfwGetWindowUserPointer(window));
+		app->m_framebufferResized = true;
 	}
 
 	void initVulkan()
@@ -92,13 +104,27 @@ class HelloTriangleApplication
 	}
 
 	void drawFrame() {
-		auto fenceResult = m_device.waitForFences(*m_drawFence, VK_TRUE, std::numeric_limits<uint64_t>::max());
+		auto fenceResult = m_device.waitForFences(*m_inFlightFences[m_frameIndex], VK_TRUE, std::numeric_limits<uint64_t>::max());
 		if (fenceResult != vk::Result::eSuccess) {
 			throw std::runtime_error("Failed to wait for fence");
 		}
-		m_device.resetFences(*m_drawFence);
 
-		auto [result, imageIndex] = m_swapChain.acquireNextImage(std::numeric_limits<uint64_t>::max(), *m_presentCompleteSemaphore, nullptr);
+		auto [result, imageIndex] = m_swapChain.acquireNextImage(std::numeric_limits<uint64_t>::max(), *m_presentCompleteSemaphores[m_frameIndex], nullptr);
+
+		if (result == vk::Result::eErrorOutOfDateKHR) {
+			recreateSwapChain();
+			m_framebufferResized = true;
+			return;
+		}
+
+		if (result != vk::Result::eSuccess && result != vk::Result::eSuboptimalKHR) {
+			assert(result == vk::Result::eTimeout || result == vk::Result::eNotReady);
+			throw std::runtime_error("failed to acquire swap chain image!");
+		}
+
+		m_device.resetFences(*m_inFlightFences[m_frameIndex]);
+
+		m_commandBuffers[m_frameIndex].reset();
 		recordCommandBuffer(imageIndex);
 
 		m_graphicsQueue.waitIdle();
@@ -106,34 +132,33 @@ class HelloTriangleApplication
 		vk::PipelineStageFlags waitDestinationStageMask(vk::PipelineStageFlagBits::eColorAttachmentOutput);
 		const vk::SubmitInfo submitInfo {
 			.waitSemaphoreCount = 1,
-			.pWaitSemaphores    = &*m_presentCompleteSemaphore,
+			.pWaitSemaphores    = &*m_presentCompleteSemaphores[m_frameIndex],
 			.pWaitDstStageMask  = &waitDestinationStageMask,
 			.commandBufferCount = 1,
-			.pCommandBuffers    = &*m_commandBuffer,
+			.pCommandBuffers    = &*m_commandBuffers[m_frameIndex],
 			.signalSemaphoreCount = 1,
-			.pSignalSemaphores   = &*m_renderFinishedSemaphore
+			.pSignalSemaphores   = &*m_renderFinishedSemaphores[imageIndex]
 		};
 
-		m_graphicsQueue.submit(submitInfo, *m_drawFence);
+		m_graphicsQueue.submit(submitInfo, *m_inFlightFences[m_frameIndex]);
 
 		const vk::PresentInfoKHR presentInfoKHR {
 			.waitSemaphoreCount = 1,
-			.pWaitSemaphores = &*m_renderFinishedSemaphore,
+			.pWaitSemaphores = &*m_renderFinishedSemaphores[imageIndex],
 			.swapchainCount      = 1,
 			.pSwapchains         = &*m_swapChain,
 			.pImageIndices       = &imageIndex
 		};
 
 		auto presentResult = m_graphicsQueue.presentKHR(presentInfoKHR);
-		switch(presentResult) {
-			case vk::Result::eSuccess:
-				break;
-			case vk::Result::eSuboptimalKHR:
-				std::cout << "Suboptimal swap chain\n";
-				break;
-			default:
-				throw std::runtime_error("Failed to present swap chain image");
+		if (presentResult == vk::Result::eErrorOutOfDateKHR || presentResult == vk::Result::eSuboptimalKHR || m_framebufferResized) {
+			std::cout << "Suboptimal swap chain\n";
+			recreateSwapChain();
+		} else {
+			// There are no other success codes than eSuccess; on any error code, presentKHR already threw an exception.
+			assert(result == vk::Result::eSuccess);
 		}
+		m_frameIndex = (m_frameIndex + 1) % MAX_FRAMES_IN_FLIGHT;
 	}
 
 	void createInstance() {
@@ -158,7 +183,6 @@ class HelloTriangleApplication
 			std::ranges::find_if(requiredExtensions, [&extensionProperties](auto const& requiredExtension) {
 				return std::ranges::none_of(extensionProperties, [requiredExtension](auto const& extensionProperty) {
 					return strcmp(extensionProperty.extensionName, requiredExtension) == 0;
-
 				});
 			});
 
@@ -308,7 +332,6 @@ class HelloTriangleApplication
 		};
 
 		m_swapChain = vk::raii::SwapchainKHR(m_device, swapChainCreateInfo);
-
 		m_swapChainImages = m_swapChain.getImages();
 	}
 
@@ -427,22 +450,28 @@ class HelloTriangleApplication
 		vk::CommandBufferAllocateInfo allocInfo {
 			.commandPool = m_commandPool,
 			.level = vk::CommandBufferLevel::ePrimary,
-			.commandBufferCount = 1
+			.commandBufferCount = MAX_FRAMES_IN_FLIGHT
 		};
 
-		m_commandBuffer = std::move(vk::raii::CommandBuffers(m_device, allocInfo).front());
+		m_commandBuffers = vk::raii::CommandBuffers(m_device, allocInfo);
 	}
 
 	void createSyncObjects() {
-		m_presentCompleteSemaphore = vk::raii::Semaphore(m_device, vk::SemaphoreCreateInfo());
-		m_renderFinishedSemaphore = vk::raii::Semaphore(m_device, vk::SemaphoreCreateInfo());
-		m_drawFence = vk::raii::Fence(m_device, {
-			.flags = vk::FenceCreateFlagBits::eSignaled
-		});
+		for (size_t i = 0; i < m_swapChainImages.size(); i++) {
+			m_renderFinishedSemaphores.emplace_back(m_device, vk::SemaphoreCreateInfo());
+		}
+
+		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+			m_presentCompleteSemaphores.emplace_back(m_device, vk::SemaphoreCreateInfo());
+			m_inFlightFences.emplace_back(m_device, vk::FenceCreateInfo{
+				.flags = vk::FenceCreateFlagBits::eSignaled
+			});
+		}
 	}
 
 	void recordCommandBuffer(uint32_t index) {
-		m_commandBuffer.begin({});
+		auto& commandBuffer = m_commandBuffers[m_frameIndex];
+		commandBuffer.begin({});
 
 		transition_image_layout(
 			index,
@@ -470,15 +499,15 @@ class HelloTriangleApplication
 			.pColorAttachments = &attachmentInfo
 		};
 
-		m_commandBuffer.beginRendering(renderingInfo);
-		m_commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, *m_graphicsPipeline);
+		commandBuffer.beginRendering(renderingInfo);
+		commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, *m_graphicsPipeline);
 
-		m_commandBuffer.setViewport(0, vk::Viewport(0.0f, 0.0f, static_cast<float>(m_swapChainExtent.width), static_cast<float>(m_swapChainExtent.height), 0.0f, 1.0f));
-		m_commandBuffer.setScissor(0, vk::Rect2D({0, 0}, m_swapChainExtent));
+		commandBuffer.setViewport(0, vk::Viewport(0.0f, 0.0f, static_cast<float>(m_swapChainExtent.width), static_cast<float>(m_swapChainExtent.height), 0.0f, 1.0f));
+		commandBuffer.setScissor(0, vk::Rect2D({0, 0}, m_swapChainExtent));
 
-		m_commandBuffer.draw(3, 1, 0, 0); // HOLY SHIIIT;
+		commandBuffer.draw(3, 1, 0, 0); // HOLY SHIIIT;
 
-		m_commandBuffer.endRendering();
+		commandBuffer.endRendering();
 
 		transition_image_layout(
 			index,
@@ -490,7 +519,7 @@ class HelloTriangleApplication
 			vk::PipelineStageFlagBits2::eBottomOfPipe
 		);
 		
-		m_commandBuffer.end();
+		commandBuffer.end();
 	}
 
 	void transition_image_layout(
@@ -525,7 +554,7 @@ class HelloTriangleApplication
 			.imageMemoryBarrierCount = 1,
 			.pImageMemoryBarriers = &barrier
 		};
-		m_commandBuffer.pipelineBarrier2(dependency_info);
+		m_commandBuffers[m_frameIndex].pipelineBarrier2(dependency_info);
 	}
 
 	vk::SurfaceFormatKHR chooseSwapSurfaceFormat(std::vector<vk::SurfaceFormatKHR> const& availableFormats) {
@@ -581,6 +610,27 @@ class HelloTriangleApplication
 		return buffer;
 	}
 
+	void cleanupSwapChain() {
+		m_swapChainImageViews.clear();
+		m_swapChain = nullptr;
+	}
+
+	void recreateSwapChain() {
+		int width = 0, height = 0;
+		glfwGetFramebufferSize(window, &width, &height);
+		while (width == 0 || height == 0) {
+			glfwGetFramebufferSize(window, &width, &height);
+			glfwWaitEvents();
+		}
+
+		m_device.waitIdle();
+
+		cleanupSwapChain();
+
+		createSwapChain();
+		createImageViews();
+	}
+
 	vk::raii::ShaderModule createShaderModule(const std::vector<char>& code) const {
 		vk::ShaderModuleCreateInfo createInfo {
 			.codeSize = code.size() * sizeof(char),
@@ -611,8 +661,9 @@ class HelloTriangleApplication
 
 	void cleanup()
 	{
-		glfwDestroyWindow(window);
+		cleanupSwapChain();
 
+		glfwDestroyWindow(window);
 		glfwTerminate();
 	}
 };
