@@ -10,16 +10,21 @@ static float3 colors[3] = {
     float3(0.0, 0.0, 1.0)
 };
 
+struct VSInput {
+    float2 inPos;
+    float3 inColor;
+};
+
 struct V2F {
     float4 pos : SV_POSITION;
     float3 color;
 };
 
 [shader("vertex")]
-V2F vertMain(uint vid : SV_VertexID) {
+V2F vertMain(VSInput input) {
     V2F o;
-    o.pos = float4(positions[vid], 0.0, 1.0);
-    o.color = colors[vid];
+    o.pos = float4(input.inPos, 0.0, 1.0);
+    o.color = input.inColor;
     return o;
 }
 
