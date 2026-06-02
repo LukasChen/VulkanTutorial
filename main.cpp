@@ -83,9 +83,11 @@ class HelloTriangleApplication
 	vk::raii::PhysicalDevice m_physicalDevice = nullptr;
 	vk::raii::Device m_device = nullptr;
 	vk::raii::Queue m_graphicsQueue = nullptr;
+	vk::raii::Queue m_transferQueue = nullptr;
 	vk::raii::SurfaceKHR m_surface = nullptr;
 	vk::raii::SwapchainKHR m_swapChain = nullptr;
-	uint32_t m_graphicsIndex = ~0;
+	uint32_t m_graphicsQueueIndex = ~0;
+	uint32_t m_transferQueueIndex = ~0;
 	vk::Extent2D m_swapChainExtent;
 	vk::SurfaceFormatKHR m_swapChainSurfaceFormat;
 	std::vector<vk::Image> m_swapChainImages;
@@ -93,6 +95,7 @@ class HelloTriangleApplication
 	vk::raii::PipelineLayout m_pipelineLayout = nullptr;
 	vk::raii::Pipeline m_graphicsPipeline = nullptr;
 	vk::raii::CommandPool m_commandPool = nullptr;
+	vk::raii::CommandPool m_transferCommandPool = nullptr;
 	std::vector<vk::raii::CommandBuffer> m_commandBuffers;
 	std::vector<vk::raii::Semaphore> m_presentCompleteSemaphores;
 	std::vector<vk::raii::Semaphore> m_renderFinishedSemaphores;
@@ -276,17 +279,10 @@ class HelloTriangleApplication
 	void createLogicalDevice() {
 		std::vector<vk::QueueFamilyProperties> queueFamilyProperties = m_physicalDevice.getQueueFamilyProperties();
 
-		for (uint32_t qfpIndex = 0; qfpIndex < queueFamilyProperties.size(); qfpIndex++) {
-			if ((queueFamilyProperties[qfpIndex].queueFlags & vk::QueueFlagBits::eGraphics) &&
-				m_physicalDevice.getSurfaceSupportKHR(qfpIndex, *m_surface)) {
-					m_graphicsIndex = qfpIndex;
-					break;
-				}
-		}
+		std::cout << queueFamilyProperties.size() << " queue families found\n";
 
-		if (m_graphicsIndex == UINT_MAX) {
-			throw std::runtime_error("Failed to find a suitable GPU");
-		}
+		m_graphicsQueueIndex = findQueueIndex(queueFamilyProperties, vk::QueueFlagBits::eGraphics, true);
+		m_transferQueueIndex = findQueueIndex(queueFamilyProperties, vk::QueueFlagBits::eTransfer, false, vk::QueueFlagBits::eGraphics);
 
 		vk::StructureChain<vk::PhysicalDeviceFeatures2,vk::PhysicalDeviceVulkan11Features, vk::PhysicalDeviceVulkan13Features, vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT> featChain = {
 			{},
@@ -298,17 +294,34 @@ class HelloTriangleApplication
 		std::vector<const char*> requiredDeviceExtension = {vk::KHRSwapchainExtensionName};
 
 		float queuePriority = 0.5f;
-		vk::DeviceQueueCreateInfo deviceQueueCreateInfo { .queueFamilyIndex = m_graphicsIndex, .queueCount = 1, .pQueuePriorities = &queuePriority};
+		uint32_t queueFamilyCount = 1;
+		std::array<vk::DeviceQueueCreateInfo, 2> deviceQueueCreateInfos = {{
+			{
+				.queueFamilyIndex = m_graphicsQueueIndex,
+				.queueCount = 1,
+				.pQueuePriorities = &queuePriority
+			}
+		}};
+		std::cout << "Found " << m_transferQueueIndex << " transfer queue index\n";
+		// if (m_transferQueueIndex != m_graphicsQueueIndex) {
+			deviceQueueCreateInfos[1] = {
+				.queueFamilyIndex = m_transferQueueIndex,
+				.queueCount = 1,
+				.pQueuePriorities = &queuePriority
+			};
+			queueFamilyCount = 2;
+		// }
 		vk::DeviceCreateInfo deviceCreateInfo {
 			.pNext = &featChain.get<vk::PhysicalDeviceFeatures2>(),
-			.queueCreateInfoCount = 1,
-			.pQueueCreateInfos = &deviceQueueCreateInfo,
+			.queueCreateInfoCount = 2,
+			.pQueueCreateInfos = deviceQueueCreateInfos.data(),
 			.enabledExtensionCount = static_cast<uint32_t>(requiredDeviceExtension.size()),
 			.ppEnabledExtensionNames = requiredDeviceExtension.data()
 		};
 
 		m_device = vk::raii::Device(m_physicalDevice, deviceCreateInfo);
-		m_graphicsQueue = vk::raii::Queue(m_device, m_graphicsIndex, 0);
+		m_graphicsQueue = vk::raii::Queue(m_device, m_graphicsQueueIndex, 0);
+		m_transferQueue = vk::raii::Queue(m_device, m_transferQueueIndex, 0);
 	}
 
 	bool isDeviceSuitable(vk::raii::PhysicalDevice const& physicalDevice) {
@@ -481,9 +494,17 @@ class HelloTriangleApplication
 	void createCommandPool() {
 		vk::CommandPoolCreateInfo poolInfo{
 			.flags = vk::CommandPoolCreateFlagBits::eResetCommandBuffer,
-			.queueFamilyIndex = m_graphicsIndex
+			.queueFamilyIndex = m_graphicsQueueIndex
 		};
 		m_commandPool = vk::raii::CommandPool(m_device, poolInfo);
+
+		vk::CommandPoolCreateInfo transferPoolInfo{
+			.flags = vk::CommandPoolCreateFlagBits::eResetCommandBuffer,
+			.queueFamilyIndex = m_transferQueueIndex
+
+		};
+
+		m_transferCommandPool = vk::raii::CommandPool(m_device, transferPoolInfo);
 	}
 
 	void createVertexBuffer() {
@@ -513,6 +534,37 @@ class HelloTriangleApplication
 		}
 
 		throw std::runtime_error("failed to find suitable memory type!");
+	}
+
+	uint32_t findQueueIndex(
+		const std::vector<vk::QueueFamilyProperties>& queueFamilyProperties,
+		vk::QueueFlagBits queueFlags,
+		bool requireSurfaceSupport = false,
+		vk::QueueFlags discouragedFlags = {}
+	) {
+		uint32_t fallbackIndex = UINT_MAX;
+
+		for (uint32_t qfpIndex = 0; qfpIndex < queueFamilyProperties.size(); qfpIndex++) {
+			vk::QueueFlags flags = queueFamilyProperties[qfpIndex].queueFlags;
+			if (!(flags & queueFlags)) {
+				continue;
+			}
+			if (requireSurfaceSupport && !m_physicalDevice.getSurfaceSupportKHR(qfpIndex, *m_surface)) {
+				continue;
+			}
+			if (fallbackIndex == UINT_MAX) {
+				fallbackIndex = qfpIndex;
+			}
+			if (!(flags & discouragedFlags)) {
+				return qfpIndex;
+			}
+		}
+
+		if (fallbackIndex != UINT_MAX) {
+			return fallbackIndex;
+		}
+
+		throw std::runtime_error("Failed to find a suitable Queue Family for " + vk::to_string(queueFlags));
 	}
 
 	void createCommandBuffer() {
@@ -629,10 +681,13 @@ class HelloTriangleApplication
 	}
 
 	std::pair<vk::raii::Buffer, vk::raii::DeviceMemory> createBuffer(vk::DeviceSize size, vk::BufferUsageFlags usage, vk::MemoryPropertyFlags properties) {
+		uint32_t queueFamilies[] = {m_graphicsQueueIndex, m_transferQueueIndex};
 		vk::BufferCreateInfo bufferInfo {
 			.size = size,
 			.usage = usage,
-			.sharingMode = vk::SharingMode::eExclusive
+			.sharingMode = vk::SharingMode::eConcurrent,
+			.queueFamilyIndexCount = 2,
+			.pQueueFamilyIndices = queueFamilies
 		};
 
 		vk::raii::Buffer buffer = vk::raii::Buffer(m_device, bufferInfo);
@@ -648,7 +703,7 @@ class HelloTriangleApplication
 
 	void copyBuffer(vk::raii::Buffer& srcBuffer, vk::raii::Buffer& dstBuffer, vk::DeviceSize size) {
 		vk::CommandBufferAllocateInfo allocInfo {
-			.commandPool = m_commandPool,
+			.commandPool = m_transferCommandPool,
 			.level = vk::CommandBufferLevel::ePrimary,
 			.commandBufferCount = 1
 		};
@@ -656,8 +711,8 @@ class HelloTriangleApplication
 		commandCopyBuffer.begin({.flags = vk::CommandBufferUsageFlagBits::eOneTimeSubmit});
 		commandCopyBuffer.copyBuffer(*srcBuffer, *dstBuffer, vk::BufferCopy(0, 0, size));
 		commandCopyBuffer.end();
-		m_graphicsQueue.submit(vk::SubmitInfo {.commandBufferCount = 1, .pCommandBuffers = &*commandCopyBuffer}, nullptr);
-		m_graphicsQueue.waitIdle();
+		m_transferQueue.submit(vk::SubmitInfo {.commandBufferCount = 1, .pCommandBuffers = &*commandCopyBuffer}, nullptr);
+		m_transferQueue.waitIdle();
 	}
 
 	vk::SurfaceFormatKHR chooseSwapSurfaceFormat(std::vector<vk::SurfaceFormatKHR> const& availableFormats) {
