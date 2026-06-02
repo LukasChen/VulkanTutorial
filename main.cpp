@@ -105,6 +105,18 @@ class HelloTriangleApplication
 	uint32_t m_frameIndex = 0;
 	bool m_framebufferResized = false;
 
+	bool hasDedicatedTransferQueueFamily() const {
+		return m_transferQueueIndex != m_graphicsQueueIndex;
+	}
+
+	vk::raii::Queue& transferQueue() {
+		return hasDedicatedTransferQueueFamily() ? m_transferQueue : m_graphicsQueue;
+	}
+
+	vk::raii::CommandPool& transferCommandPool() {
+		return hasDedicatedTransferQueueFamily() ? m_transferCommandPool : m_commandPool;
+	}
+
 	void initWindow()
 	{
 		glfwInit();
@@ -294,26 +306,25 @@ class HelloTriangleApplication
 		std::vector<const char*> requiredDeviceExtension = {vk::KHRSwapchainExtensionName};
 
 		float queuePriority = 0.5f;
-		uint32_t queueFamilyCount = 1;
-		std::array<vk::DeviceQueueCreateInfo, 2> deviceQueueCreateInfos = {{
+		uint32_t queueCreateInfoCount = 1;
+		std::array<vk::DeviceQueueCreateInfo, 2> deviceQueueCreateInfos {{
 			{
 				.queueFamilyIndex = m_graphicsQueueIndex,
 				.queueCount = 1,
 				.pQueuePriorities = &queuePriority
 			}
 		}};
-		std::cout << "Found " << m_transferQueueIndex << " transfer queue index\n";
-		// if (m_transferQueueIndex != m_graphicsQueueIndex) {
+		if (hasDedicatedTransferQueueFamily()) {
 			deviceQueueCreateInfos[1] = {
 				.queueFamilyIndex = m_transferQueueIndex,
 				.queueCount = 1,
 				.pQueuePriorities = &queuePriority
 			};
-			queueFamilyCount = 2;
-		// }
+			queueCreateInfoCount = 2;
+		}
 		vk::DeviceCreateInfo deviceCreateInfo {
 			.pNext = &featChain.get<vk::PhysicalDeviceFeatures2>(),
-			.queueCreateInfoCount = 2,
+			.queueCreateInfoCount = queueCreateInfoCount,
 			.pQueueCreateInfos = deviceQueueCreateInfos.data(),
 			.enabledExtensionCount = static_cast<uint32_t>(requiredDeviceExtension.size()),
 			.ppEnabledExtensionNames = requiredDeviceExtension.data()
@@ -504,7 +515,9 @@ class HelloTriangleApplication
 
 		};
 
-		m_transferCommandPool = vk::raii::CommandPool(m_device, transferPoolInfo);
+		if (hasDedicatedTransferQueueFamily()) {
+			m_transferCommandPool = vk::raii::CommandPool(m_device, transferPoolInfo);
+		}
 	}
 
 	void createVertexBuffer() {
@@ -681,14 +694,17 @@ class HelloTriangleApplication
 	}
 
 	std::pair<vk::raii::Buffer, vk::raii::DeviceMemory> createBuffer(vk::DeviceSize size, vk::BufferUsageFlags usage, vk::MemoryPropertyFlags properties) {
-		uint32_t queueFamilies[] = {m_graphicsQueueIndex, m_transferQueueIndex};
 		vk::BufferCreateInfo bufferInfo {
 			.size = size,
 			.usage = usage,
-			.sharingMode = vk::SharingMode::eConcurrent,
-			.queueFamilyIndexCount = 2,
-			.pQueueFamilyIndices = queueFamilies
+			.sharingMode = vk::SharingMode::eExclusive
 		};
+		std::array<uint32_t, 2> queueFamilies = {m_graphicsQueueIndex, m_transferQueueIndex};
+		if (hasDedicatedTransferQueueFamily()) {
+			bufferInfo.sharingMode = vk::SharingMode::eConcurrent;
+			bufferInfo.queueFamilyIndexCount = static_cast<uint32_t>(queueFamilies.size());
+			bufferInfo.pQueueFamilyIndices = queueFamilies.data();
+		}
 
 		vk::raii::Buffer buffer = vk::raii::Buffer(m_device, bufferInfo);
 		vk::MemoryRequirements memRequirements = buffer.getMemoryRequirements();
@@ -703,7 +719,7 @@ class HelloTriangleApplication
 
 	void copyBuffer(vk::raii::Buffer& srcBuffer, vk::raii::Buffer& dstBuffer, vk::DeviceSize size) {
 		vk::CommandBufferAllocateInfo allocInfo {
-			.commandPool = m_transferCommandPool,
+			.commandPool = transferCommandPool(),
 			.level = vk::CommandBufferLevel::ePrimary,
 			.commandBufferCount = 1
 		};
@@ -711,8 +727,8 @@ class HelloTriangleApplication
 		commandCopyBuffer.begin({.flags = vk::CommandBufferUsageFlagBits::eOneTimeSubmit});
 		commandCopyBuffer.copyBuffer(*srcBuffer, *dstBuffer, vk::BufferCopy(0, 0, size));
 		commandCopyBuffer.end();
-		m_transferQueue.submit(vk::SubmitInfo {.commandBufferCount = 1, .pCommandBuffers = &*commandCopyBuffer}, nullptr);
-		m_transferQueue.waitIdle();
+		transferQueue().submit(vk::SubmitInfo {.commandBufferCount = 1, .pCommandBuffers = &*commandCopyBuffer}, nullptr);
+		transferQueue().waitIdle();
 	}
 
 	vk::SurfaceFormatKHR chooseSwapSurfaceFormat(std::vector<vk::SurfaceFormatKHR> const& availableFormats) {
