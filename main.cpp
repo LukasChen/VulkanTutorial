@@ -6,8 +6,10 @@
 #include <iostream>
 #include <map>
 #include <array>
+#include <chrono>
 
 #include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 #if defined(__INTELLISENSE__) || !defined(USE_CPP20_MODULES)
 #	include <vulkan/vulkan_raii.hpp>
 #else
@@ -58,10 +60,25 @@ struct Vertex {
 	}
 };
 
+struct UniformInfo {
+	glm::mat4 model;
+	glm::mat4 view;
+	glm::mat4 proj;
+};
+
+struct UniformBufferObject {
+	glm::mat4 mvp;
+};
+
 const std::vector<Vertex> vertices = {
-	{{0.0f, -0.5f}, {1.0f, 1.0f, 1.0f}},
-	{{0.5, 0.5f}, {0.0f, 1.0f, 0.0f}},
-	{{-0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}}
+    {{-0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}},
+    {{0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}},
+    {{0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}},
+    {{-0.5f, 0.5f}, {1.0f, 1.0f, 1.0f}}
+};
+
+const std::vector<uint16_t> indices = {
+	0, 1, 2, 2, 3, 0
 };
 
 
@@ -102,8 +119,16 @@ class HelloTriangleApplication
 	std::vector<vk::raii::Fence> m_inFlightFences;
 	vk::raii::Buffer m_vertexBuffer = nullptr;
 	vk::raii::DeviceMemory m_vertexBufferMemory = nullptr;
+	vk::raii::Buffer m_indexBuffer = nullptr;
+	vk::raii::DeviceMemory m_indexBufferMemory = nullptr;
+	std::vector<vk::raii::Buffer> m_uniformBuffers;
+	std::vector<vk::raii::DeviceMemory> m_uniformBuffersMemory;
+	std::vector<void*> m_uniformBuffersMapped;
 	uint32_t m_frameIndex = 0;
 	bool m_framebufferResized = false;
+	vk::raii::DescriptorSetLayout m_descriptorSetLayout = nullptr;
+	vk::raii::DescriptorPool m_descriptorPool = nullptr;
+	std::vector<vk::raii::DescriptorSet> m_descriptorSets;
 
 	bool hasDedicatedTransferQueueFamily() const {
 		return m_transferQueueIndex != m_graphicsQueueIndex;
@@ -143,9 +168,14 @@ class HelloTriangleApplication
 		createLogicalDevice();
 		createSwapChain();
 		createImageViews();
+		createDescriptorSetLayout();
 		createGraphicsPipeline();
 		createCommandPool();
 		createVertexBuffer();
+		createIndexBuffer();
+		createUniformBuffers();
+		createDescriptorPool();
+		createDescriptorSets();
 		createCommandBuffer();
 		createSyncObjects();
 	}
@@ -172,6 +202,7 @@ class HelloTriangleApplication
 		m_device.resetFences(*m_inFlightFences[m_frameIndex]);
 
 		m_commandBuffers[m_frameIndex].reset();
+		updateUniformBuffer(m_frameIndex);
 		recordCommandBuffer(imageIndex);
 
 		m_graphicsQueue.waitIdle();
@@ -206,6 +237,23 @@ class HelloTriangleApplication
 			assert(result == vk::Result::eSuccess);
 		}
 		m_frameIndex = (m_frameIndex + 1) % MAX_FRAMES_IN_FLIGHT;
+	}
+
+	void updateUniformBuffer(uint32_t currentImage) {
+		static auto startTime = std::chrono::high_resolution_clock::now();
+		auto currentTime = std::chrono::high_resolution_clock::now();
+		float time = std::chrono::duration<float, std::chrono::seconds::period>(currentTime - startTime).count();
+
+		glm::mat4 model = glm::rotate(glm::mat4(1.0f), time * glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+		glm::mat4 view = glm::lookAt(glm::vec3(2.0f, 2.0f, 2.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+		glm::mat4 proj = glm::perspective(glm::radians(45.0f), m_swapChainExtent.width / (float)m_swapChainExtent.height, 0.1f, 10.0f);
+		proj[1][1] *= -1;
+
+		UniformBufferObject ubo{
+			proj * view * model
+		};
+
+		memcpy(m_uniformBuffersMapped[currentImage], &ubo, sizeof(ubo));
 	}
 
 	void createInstance() {
@@ -391,6 +439,21 @@ class HelloTriangleApplication
 		m_swapChainImages = m_swapChain.getImages();
 	}
 
+	void createDescriptorSetLayout() {
+		vk::DescriptorSetLayoutBinding uboLayoutBinding {
+			.binding = 0,
+			.descriptorType = vk::DescriptorType::eUniformBuffer,
+			.descriptorCount = 1,
+			.stageFlags = vk::ShaderStageFlagBits::eVertex
+		};
+
+		vk::DescriptorSetLayoutCreateInfo layoutInfo {
+			.bindingCount = 1,
+			.pBindings = &uboLayoutBinding,
+		};
+		m_descriptorSetLayout = m_device.createDescriptorSetLayout(layoutInfo);
+	}
+
 	void createImageViews() {
 		assert(m_swapChainImageViews.empty());
 
@@ -447,7 +510,7 @@ class HelloTriangleApplication
 			.rasterizerDiscardEnable = vk::False,
 			.polygonMode = vk::PolygonMode::eFill,
 			.cullMode = vk::CullModeFlagBits::eBack,
-			.frontFace = vk::FrontFace::eClockwise,
+			.frontFace = vk::FrontFace::eCounterClockwise,
 			.depthBiasEnable = vk::False,
 			.lineWidth = 1.0f
 		};
@@ -475,7 +538,11 @@ class HelloTriangleApplication
 			.pDynamicStates = dynamicStates.data()
 		};
 
-		vk::PipelineLayoutCreateInfo pipelineLayoutInfo {.setLayoutCount = 0, .pushConstantRangeCount = 0};
+		vk::PipelineLayoutCreateInfo pipelineLayoutInfo {
+			.setLayoutCount = 1,
+			.pSetLayouts = &*m_descriptorSetLayout,
+			.pushConstantRangeCount = 0
+		};
 		m_pipelineLayout = vk::raii::PipelineLayout(m_device, pipelineLayoutInfo);
 
 		vk::StructureChain<vk::GraphicsPipelineCreateInfo, vk::PipelineRenderingCreateInfo> pipelineCreateInfo {
@@ -535,6 +602,74 @@ class HelloTriangleApplication
 
 		copyBuffer(stagingBuffer, m_vertexBuffer, bufferSize);
 
+	}
+
+	void createIndexBuffer() {
+		vk::DeviceSize bufferSize = sizeof(indices[0]) * indices.size();
+
+		auto [stagingBuffer, stagingBufferMemory] =
+			createBuffer(bufferSize, vk::BufferUsageFlagBits::eTransferSrc, vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent);
+		
+		void* dataStaging = stagingBufferMemory.mapMemory(0, bufferSize);
+		memcpy(dataStaging, indices.data(), bufferSize);
+		stagingBufferMemory.unmapMemory();
+
+		std::tie(m_indexBuffer, m_indexBufferMemory) = createBuffer(bufferSize, vk::BufferUsageFlagBits::eTransferDst | vk::BufferUsageFlagBits::eIndexBuffer, vk::MemoryPropertyFlagBits::eDeviceLocal);
+		copyBuffer(stagingBuffer, m_indexBuffer, bufferSize);
+	}
+
+	void createUniformBuffers() {
+		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+			vk::DeviceSize bufferSize = sizeof(UniformBufferObject);
+			auto [buffer, bufferMem] = 
+				createBuffer(bufferSize, vk::BufferUsageFlagBits::eUniformBuffer, vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent);
+			m_uniformBuffers.emplace_back(std::move(buffer));
+			m_uniformBuffersMemory.emplace_back(std::move(bufferMem));
+			m_uniformBuffersMapped.emplace_back(m_uniformBuffersMemory.back().mapMemory(0, bufferSize));
+		}
+	}
+
+	void createDescriptorPool() {
+		vk::DescriptorPoolSize poolSize {
+			.type = vk::DescriptorType::eUniformBuffer,
+			.descriptorCount = MAX_FRAMES_IN_FLIGHT
+		};
+
+		vk::DescriptorPoolCreateInfo poolInfo {
+			.flags = vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet,
+			.maxSets = MAX_FRAMES_IN_FLIGHT,
+			.poolSizeCount = 1,
+			.pPoolSizes = &poolSize
+		};
+
+		m_descriptorPool = vk::raii::DescriptorPool(m_device, poolInfo);
+	}
+
+	void createDescriptorSets() {
+		std::vector<vk::DescriptorSetLayout> layouts(MAX_FRAMES_IN_FLIGHT, *m_descriptorSetLayout);
+		vk::DescriptorSetAllocateInfo allocInfo {
+			.descriptorPool = m_descriptorPool,
+			.descriptorSetCount = static_cast<uint32_t>(layouts.size()),
+			.pSetLayouts = layouts.data()
+		};
+		m_descriptorSets = m_device.allocateDescriptorSets(allocInfo);
+
+		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+			vk::DescriptorBufferInfo bufferInfo {
+				.buffer = m_uniformBuffers[i],
+				.offset = 0,
+				.range = sizeof(UniformBufferObject)
+			};
+			vk::WriteDescriptorSet descriptorWrite {
+				.dstSet = m_descriptorSets[i],
+				.dstBinding = 0,
+				.dstArrayElement = 0,
+				.descriptorCount = 1,
+				.descriptorType = vk::DescriptorType::eUniformBuffer,
+				.pBufferInfo = &bufferInfo,
+			};
+			m_device.updateDescriptorSets(descriptorWrite, {});
+		}
 	}
 
 	uint32_t findMemoryType(uint32_t typeFilter, vk::MemoryPropertyFlags properties) {
@@ -637,11 +772,14 @@ class HelloTriangleApplication
 		commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, *m_graphicsPipeline);
 
 		commandBuffer.bindVertexBuffers(0, *m_vertexBuffer, {0});
+		commandBuffer.bindIndexBuffer(*m_indexBuffer, 0, vk::IndexType::eUint16);
+
+		commandBuffer.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, m_pipelineLayout, 0, *m_descriptorSets[m_frameIndex], nullptr);
 
 		commandBuffer.setViewport(0, vk::Viewport(0.0f, 0.0f, static_cast<float>(m_swapChainExtent.width), static_cast<float>(m_swapChainExtent.height), 0.0f, 1.0f));
 		commandBuffer.setScissor(0, vk::Rect2D({0, 0}, m_swapChainExtent));
 
-		commandBuffer.draw(static_cast<uint32_t>(vertices.size()), 1, 0, 0); // HOLY SHIIIT;
+		commandBuffer.drawIndexed(static_cast<uint32_t>(indices.size()), 1, 0, 0, 0); // HOLY SHIIIT;
 
 		commandBuffer.endRendering();
 

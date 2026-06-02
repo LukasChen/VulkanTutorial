@@ -1,19 +1,13 @@
-static float2 positions[3] = {
-    float2(0.0, -0.5),
-    float2(0.5, 0.5),
-    float2(-0.5, 0.5)
-};
-
-static float3 colors[3] = {
-    float3(1.0, 0.0, 0.0),
-    float3(0.0, 1.0, 0.0),
-    float3(0.0, 0.0, 1.0)
-};
+struct UniformBuffer {
+    float4x4 mvp;
+}
 
 struct VSInput {
     float2 inPos;
     float3 inColor;
 };
+
+ConstantBuffer<UniformBuffer> ubo;
 
 struct V2F {
     float4 pos : SV_POSITION;
@@ -23,7 +17,7 @@ struct V2F {
 [shader("vertex")]
 V2F vertMain(VSInput input) {
     V2F o;
-    o.pos = float4(input.inPos, 0.0, 1.0);
+    o.pos = mul(ubo.mvp, float4(input.inPos, 0.0, 1.0));
     o.color = input.inColor;
     return o;
 }
