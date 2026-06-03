@@ -26,6 +26,8 @@ import vulkan_hpp;
 #include <iostream>
 #include <stdexcept>
 
+#include "model.h"
+
 constexpr uint32_t WIDTH  = 800;
 constexpr uint32_t HEIGHT = 600;
 const std::vector<char const*> validationLayers = {
@@ -41,8 +43,10 @@ constexpr bool enableValidationLayers = true;
 #endif
 
 struct Vertex {
-	glm::vec2 pos;
+	glm::vec3 pos;
 	glm::vec3 color;
+
+	Vertex(glm::vec3 p, glm::vec3 c) : pos(p), color(c) {}
 
 	static vk::VertexInputBindingDescription getBindingDescription() {
 		return {
@@ -54,7 +58,7 @@ struct Vertex {
 
 	static std::array<vk::VertexInputAttributeDescription, 2> getAttributeDescriptions() {
 		return {{
-			{.location = 0, .binding = 0, .format = vk::Format::eR32G32Sfloat, .offset = offsetof(Vertex, pos)},
+			{.location = 0, .binding = 0, .format = vk::Format::eR32G32B32Sfloat, .offset = offsetof(Vertex, pos)},
 			{.location = 1, .binding = 0, .format = vk::Format::eR32G32B32Sfloat, .offset = offsetof(Vertex, color)}
 		}};
 	}
@@ -71,16 +75,15 @@ struct UniformBufferObject {
 };
 
 const std::vector<Vertex> vertices = {
-    {{-0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}},
-    {{0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}},
-    {{0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}},
-    {{-0.5f, 0.5f}, {1.0f, 1.0f, 1.0f}}
+    {{-0.5f, 0.0f, -0.5f}, {1.0f, 0.0f, 0.0f}},
+    {{0.5f, 0.0f, -0.5f}, {0.0f, 1.0f, 0.0f}},
+    {{0.5f, 0.0f, 0.5f}, {0.0f, 0.0f, 1.0f}},
+    {{-0.5f, 0.0f, 0.5f}, {1.0f, 1.0f, 1.0f}}
 };
 
 const std::vector<uint16_t> indices = {
 	0, 1, 2, 2, 3, 0
 };
-
 
 class HelloTriangleApplication
 {
@@ -129,6 +132,8 @@ class HelloTriangleApplication
 	vk::raii::DescriptorSetLayout m_descriptorSetLayout = nullptr;
 	vk::raii::DescriptorPool m_descriptorPool = nullptr;
 	std::vector<vk::raii::DescriptorSet> m_descriptorSets;
+	std::vector<Vertex> m_vertices;
+	std::vector<uint16_t> m_indices;
 
 	bool hasDedicatedTransferQueueFamily() const {
 		return m_transferQueueIndex != m_graphicsQueueIndex;
@@ -171,6 +176,7 @@ class HelloTriangleApplication
 		createDescriptorSetLayout();
 		createGraphicsPipeline();
 		createCommandPool();
+		loadModel();
 		createVertexBuffer();
 		createIndexBuffer();
 		createUniformBuffers();
@@ -244,14 +250,13 @@ class HelloTriangleApplication
 		auto currentTime = std::chrono::high_resolution_clock::now();
 		float time = std::chrono::duration<float, std::chrono::seconds::period>(currentTime - startTime).count();
 
-		glm::mat4 model = glm::rotate(glm::mat4(1.0f), time * glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
-		glm::mat4 view = glm::lookAt(glm::vec3(2.0f, 2.0f, 2.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+		glm::mat4 model = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, sin(time), 0.0f));
+		model = glm::rotate(model, time * glm::radians(90.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+		glm::mat4 view = glm::lookAt(glm::vec3(2.0f, 2.0f, 2.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
 		glm::mat4 proj = glm::perspective(glm::radians(45.0f), m_swapChainExtent.width / (float)m_swapChainExtent.height, 0.1f, 10.0f);
 		proj[1][1] *= -1;
 
-		UniformBufferObject ubo{
-			proj * view * model
-		};
+		UniformBufferObject ubo(proj * view * model);
 
 		memcpy(m_uniformBuffersMapped[currentImage], &ubo, sizeof(ubo));
 	}
@@ -510,7 +515,7 @@ class HelloTriangleApplication
 			.rasterizerDiscardEnable = vk::False,
 			.polygonMode = vk::PolygonMode::eFill,
 			.cullMode = vk::CullModeFlagBits::eBack,
-			.frontFace = vk::FrontFace::eCounterClockwise,
+			.frontFace = vk::FrontFace::eClockwise,
 			.depthBiasEnable = vk::False,
 			.lineWidth = 1.0f
 		};
@@ -588,13 +593,13 @@ class HelloTriangleApplication
 	}
 
 	void createVertexBuffer() {
-		vk::DeviceSize bufferSize = sizeof(vertices[0]) * vertices.size();
+		vk::DeviceSize bufferSize = sizeof(m_vertices[0]) * m_vertices.size();
 
 		auto [stagingBuffer, stagingBufferMemory] = 
 			createBuffer(bufferSize, vk::BufferUsageFlagBits::eTransferSrc, vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent);
 		
 		void* dataStaging = stagingBufferMemory.mapMemory(0, bufferSize);
-		memcpy(dataStaging, vertices.data(), bufferSize);
+		memcpy(dataStaging, m_vertices.data(), bufferSize);
 		stagingBufferMemory.unmapMemory();
 
 		std::tie(m_vertexBuffer, m_vertexBufferMemory) = 
@@ -605,13 +610,13 @@ class HelloTriangleApplication
 	}
 
 	void createIndexBuffer() {
-		vk::DeviceSize bufferSize = sizeof(indices[0]) * indices.size();
+		vk::DeviceSize bufferSize = sizeof(m_indices[0]) * m_indices.size();
 
 		auto [stagingBuffer, stagingBufferMemory] =
 			createBuffer(bufferSize, vk::BufferUsageFlagBits::eTransferSrc, vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent);
 		
 		void* dataStaging = stagingBufferMemory.mapMemory(0, bufferSize);
-		memcpy(dataStaging, indices.data(), bufferSize);
+		memcpy(dataStaging, m_indices.data(), bufferSize);
 		stagingBufferMemory.unmapMemory();
 
 		std::tie(m_indexBuffer, m_indexBufferMemory) = createBuffer(bufferSize, vk::BufferUsageFlagBits::eTransferDst | vk::BufferUsageFlagBits::eIndexBuffer, vk::MemoryPropertyFlagBits::eDeviceLocal);
@@ -779,7 +784,7 @@ class HelloTriangleApplication
 		commandBuffer.setViewport(0, vk::Viewport(0.0f, 0.0f, static_cast<float>(m_swapChainExtent.width), static_cast<float>(m_swapChainExtent.height), 0.0f, 1.0f));
 		commandBuffer.setScissor(0, vk::Rect2D({0, 0}, m_swapChainExtent));
 
-		commandBuffer.drawIndexed(static_cast<uint32_t>(indices.size()), 1, 0, 0, 0); // HOLY SHIIIT;
+		commandBuffer.drawIndexed(static_cast<uint32_t>(m_indices.size()), 1, 0, 0, 0); // HOLY SHIIIT;
 
 		commandBuffer.endRendering();
 
@@ -969,6 +974,14 @@ class HelloTriangleApplication
 			drawFrame();
 		}
 		m_device.waitIdle();        // wait for device to finish operations before destroying resources
+	}
+
+	void loadModel() {
+		Model model("box.obj");
+		for (size_t i = 0; i < model.nverts(); i++) {
+			m_vertices.emplace_back(model.vert(i), glm::vec3{1.0f, 1.0f, 1.0f});
+		}
+		m_indices = model.getIndices();
 	}
 
 	void cleanup()

@@ -3,7 +3,7 @@ struct UniformBuffer {
 }
 
 struct VSInput {
-    float2 inPos;
+    float3 inPos;
     float3 inColor;
 };
 
@@ -17,7 +17,7 @@ struct V2F {
 [shader("vertex")]
 V2F vertMain(VSInput input) {
     V2F o;
-    o.pos = mul(ubo.mvp, float4(input.inPos, 0.0, 1.0));
+    o.pos = mul(ubo.mvp, float4(input.inPos, 1.0));
     o.color = input.inColor;
     return o;
 }
