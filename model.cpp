@@ -60,10 +60,18 @@ glm::vec3 Model::vert(int iface, int nthvert) const {
     return m_Verts[m_Faces[iface][0][nthvert]];
 }
 
+int Model::vertIndex(int iface, int nthvert) const {
+    return m_Faces[iface][0][nthvert];
+}
+
 glm::vec3 Model::normal(int i) const {
     return m_Normals[i];
 }
 
 glm::vec3 Model::normal(int iface, int nthvert) const {
     return m_Normals[m_Faces[iface][1][nthvert]];
+}
+
+int Model::normalIndex(int iface, int nthvert) const {
+    return m_Faces[iface][1][nthvert];
 }

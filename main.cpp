@@ -6,8 +6,10 @@
 #include <iostream>
 #include <map>
 #include <array>
+#include <span>
 #include <chrono>
 
+#define GLM_FORCE_DEPTH_ZERO_TO_ONE
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #if defined(__INTELLISENSE__) || !defined(USE_CPP20_MODULES)
@@ -44,6 +46,7 @@ constexpr bool enableValidationLayers = true;
 
 struct Vertex {
 	glm::vec3 pos;
+	glm::vec3 normal;
 	glm::vec3 color;
 
 	Vertex(glm::vec3 p, glm::vec3 c) : pos(p), color(c) {}
@@ -56,10 +59,11 @@ struct Vertex {
 		};
 	}
 
-	static std::array<vk::VertexInputAttributeDescription, 2> getAttributeDescriptions() {
+	static std::array<vk::VertexInputAttributeDescription, 3> getAttributeDescriptions() {
 		return {{
 			{.location = 0, .binding = 0, .format = vk::Format::eR32G32B32Sfloat, .offset = offsetof(Vertex, pos)},
-			{.location = 1, .binding = 0, .format = vk::Format::eR32G32B32Sfloat, .offset = offsetof(Vertex, color)}
+			{.location = 1, .binding = 0, .format = vk::Format::eR32G32B32Sfloat, .offset = offsetof(Vertex, normal)},
+			{.location = 2, .binding = 0, .format = vk::Format::eR32G32B32Sfloat, .offset = offsetof(Vertex, color)}
 		}};
 	}
 };
@@ -71,7 +75,9 @@ struct UniformInfo {
 };
 
 struct UniformBufferObject {
-	glm::mat4 mvp;
+	glm::mat4 m;
+	glm::mat4 vp;
+	glm::mat3 n;
 };
 
 const std::vector<Vertex> vertices = {
@@ -134,6 +140,9 @@ class HelloTriangleApplication
 	std::vector<vk::raii::DescriptorSet> m_descriptorSets;
 	std::vector<Vertex> m_vertices;
 	std::vector<uint16_t> m_indices;
+	vk::raii::Image m_depthBuffer = nullptr;
+	vk::raii::DeviceMemory m_depthBufferMemory = nullptr;
+	vk::raii::ImageView m_depthBufferImageView = nullptr;
 
 	bool hasDedicatedTransferQueueFamily() const {
 		return m_transferQueueIndex != m_graphicsQueueIndex;
@@ -176,6 +185,7 @@ class HelloTriangleApplication
 		createDescriptorSetLayout();
 		createGraphicsPipeline();
 		createCommandPool();
+		createDepthResources();
 		loadModel();
 		createVertexBuffer();
 		createIndexBuffer();
@@ -256,7 +266,13 @@ class HelloTriangleApplication
 		glm::mat4 proj = glm::perspective(glm::radians(45.0f), m_swapChainExtent.width / (float)m_swapChainExtent.height, 0.1f, 10.0f);
 		proj[1][1] *= -1;
 
-		UniformBufferObject ubo(proj * view * model);
+		glm::mat3 normalMatrix = glm::transpose(glm::inverse(glm::mat3(model)));
+
+		UniformBufferObject ubo {
+			model,
+			proj * view,
+			normalMatrix
+		};
 
 		memcpy(m_uniformBuffersMapped[currentImage], &ubo, sizeof(ubo));
 	}
@@ -592,6 +608,13 @@ class HelloTriangleApplication
 		}
 	}
 
+	void createDepthResources() {
+		vk::Format depthFormat = findDepthFormat();
+
+		std::tie(m_depthBuffer, m_depthBufferMemory) = createImage(m_swapChainExtent.width, m_swapChainExtent.height, depthFormat, vk::ImageTiling::eOptimal, vk::ImageUsageFlagBits::eDepthStencilAttachment, vk::MemoryPropertyFlagBits::eDeviceLocal);
+		m_depthImageView = createImageView(m_depthBuffer, depthFormat, vk::ImageAspectFlagBits::eDepth);
+	}
+
 	void createVertexBuffer() {
 		vk::DeviceSize bufferSize = sizeof(m_vertices[0]) * m_vertices.size();
 
@@ -748,16 +771,28 @@ class HelloTriangleApplication
 		commandBuffer.begin({});
 
 		transition_image_layout(
-			index,
+			m_swapChainImages[index],
 			vk::ImageLayout::eUndefined,
 			vk::ImageLayout::eColorAttachmentOptimal,
 			{},
 			vk::AccessFlagBits2::eColorAttachmentWrite,
 			vk::PipelineStageFlagBits2::eColorAttachmentOutput,
-			vk::PipelineStageFlagBits2::eColorAttachmentOutput
+			vk::PipelineStageFlagBits2::eColorAttachmentOutput,
+			vk::ImageAspectFlagBits::eColor
+		);
+		transition_image_layout(
+			*m_depthBuffer,
+			vk::ImageLayout::eUndefined,
+			vk::ImageLayout::eDepthAttachmentOptimal,
+			vk::AccessFlagBits2::eDepthStencilAttachmentWrite,
+			vk::AccessFlagBits2::eDepthStencilAttachmentWrite,
+			vk::PipelineStageFlagBits2::eEarlyFragmentTests | vk::PipelineStageFlagBits2::eLateFragmentTests,
+			vk::PipelineStageFlagBits2::eEarlyFragmentTests | vk::PipelineStageFlagBits2::eLateFragmentTests,
+			vk::ImageAspectFlagBits::eDepth
 		);
 
 		vk::ClearValue clearColor = vk::ClearColorValue(0.0f, 0.0f, 0.0f, 1.0f);
+		vk::ClearValue clearDepth = vk::ClearDepthStencilValue(1.0f, 0);
 		vk::RenderingAttachmentInfo attachmentInfo = {
 			.imageView = m_swapChainImageViews[index],
 			.imageLayout = vk::ImageLayout::eColorAttachmentOptimal,
@@ -766,11 +801,20 @@ class HelloTriangleApplication
 			.clearValue = clearColor
 		};
 
+		vk::RenderingAttachmentInfo depthAttachmentInfo = {
+			.imageView = m_depthBufferImageView,
+			.imageLayout = vk::ImageLayout::eDepthAttachmentOptimal,
+			.loadOp = vk::AttachmentLoadOp::eClear,
+			.storeOp = vk::AttachmentStoreOp::eDontCare,
+			.clearValue = clearDepth
+		};
+
 		vk::RenderingInfo renderingInfo = {
 			.renderArea = {.offset = {0, 0}, .extent = m_swapChainExtent },
 			.layerCount = 1,
 			.colorAttachmentCount = 1,
-			.pColorAttachments = &attachmentInfo
+			.pColorAttachments = &attachmentInfo,
+			.pDepthAttachment = &depthAttachmentInfo
 		};
 
 		commandBuffer.beginRendering(renderingInfo);
@@ -789,26 +833,28 @@ class HelloTriangleApplication
 		commandBuffer.endRendering();
 
 		transition_image_layout(
-			index,
+			m_swapChainImages[index],
 			vk::ImageLayout::eColorAttachmentOptimal,
 			vk::ImageLayout::ePresentSrcKHR,
 			vk::AccessFlagBits2::eColorAttachmentWrite,
 			{},
 			vk::PipelineStageFlagBits2::eColorAttachmentOutput,
-			vk::PipelineStageFlagBits2::eBottomOfPipe
+			vk::PipelineStageFlagBits2::eBottomOfPipe,
+			vk::ImageAspectFlagBits::eColor
 		);
 		
 		commandBuffer.end();
 	}
 
 	void transition_image_layout(
-		uint32_t imageIndex,
+		vk::Image image,
 		vk::ImageLayout old_layout,
 		vk::ImageLayout new_layout,
 		vk::AccessFlags2 src_access_mask,
 		vk::AccessFlags2 dst_access_mask,
 		vk::PipelineStageFlags2 src_stage_mask,
-		vk::PipelineStageFlags2 dst_stage_mask
+		vk::PipelineStageFlags2 dst_stage_mask,
+		vk::ImageAspectFlags image_aspect_flags
 	) {
 		vk::ImageMemoryBarrier2 barrier = {
 			.srcStageMask = src_stage_mask,
@@ -819,9 +865,9 @@ class HelloTriangleApplication
 			.newLayout = new_layout,
 			.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
 			.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-			.image = m_swapChainImages[imageIndex],
+			.image = image,
 			.subresourceRange = {
-				vk::ImageAspectFlagBits::eColor,
+				image_aspect_flags,
 				0,
 				1,
 				0,
@@ -883,6 +929,32 @@ class HelloTriangleApplication
 			}
 		);
 		return formatIt != availableFormats.end() ? *formatIt : availableFormats[0];
+	}
+
+	vk::Format findSupportedFormat(std::span<const vk::Format> candidates, vk::ImageTiling tiling, vk::FormatFeatureFlags features) {
+		for (const auto format : candidates) {
+			vk::FormatProperties props = m_physicalDevice.getFormatProperties(format);
+			if (tiling == vk::ImageTiling::eLinear && (props.linearTilingFeatures & features) == features) {
+				return format;
+			}
+			if (tiling == vk::ImageTiling::eOptimal && (props.optimalTilingFeatures & features) == features) {
+				return format;
+			}
+		}
+
+		throw std::runtime_error("failed to find supported format");
+	}
+
+	vk::Format findDepthFormat() {
+		return findSupportedFormat(
+			std::to_array<vk::Format>({vk::Format::eD32Sfloat, vk::Format::eD32SfloatS8Uint, vk::Format::eD24UnormS8Uint}),
+			vk::ImageTiling::eOptimal,
+			vk::FormatFeatureFlagBits::eDepthStencilAttachment
+		);
+	}
+
+	bool hasStencilComponent(vk::Format format) {
+		return format == vk::Format::eD32SfloatS8Uint || format == vk::Format::eD24UnormS8Uint;
 	}
 
 
@@ -948,6 +1020,50 @@ class HelloTriangleApplication
 		createImageViews();
 	}
 
+	std::pair<vk::raii::Image, vk::raii::DeviceMemory> createImage(
+		uint32_t width, uint32_t height, vk::Format format, vk::ImageTiling tiling, vk::ImageUsageFlags usage, vk::MemoryPropertyFlags properties
+	) {
+		vk::ImageCreateInfo imageInfo {
+			.imageType = vk::ImageType::e2D
+			.format = format,
+			.extent = {width, height, 1},
+			.mipLevels = 1,
+			.arrayLayers = 1,
+			.samples = vk::SampleCountFlagBits::e1,
+			.tiling = tiling,
+			.usage = usage,
+			.sharingMode = vk::SharingMode::eExclusive
+		};
+
+		vk::raii::Image image = vk::raii::Image(m_device, imageInfo);
+
+		vk::MemoryRequirements memRequirements = image.getMemoryRequirements();
+		vk::MemoryAllocateInfo allocInfo {
+			.allocationSize = memRequirements.size,
+			.memoryTypeIndex = findMemoryType(memRequirements.memoryTypeBits, properties)
+		};
+
+		vk::raii::DeviceMemory imageMemory = vk::raii::DeviceMemory(m_device, allocInfo);
+		image.bindMemory(imageMemory, 0);
+		return {std::move(image), std::move(imageMemory)};
+	}
+
+	vk::raii::ImageView createImageView(const vk::Image& image, vk::Format format, vk::ImageAspectFlags aspectFlags) {
+		vk::ImageViewCreateInfo viewInfo {
+			.image = image,
+			.viewType = vk::ImageViewType::e2D,
+			.format = format,
+			.subresourceRange = {
+				.aspectMask = aspectFlags,
+				.baseMipLevel = 0,
+				.levelCount = 1,
+				.baseArrayLayer = 0,
+				.layerCount = 1
+			}
+		};
+		return vk::raii::ImageView(m_device, viewInfo);
+	}
+
 	vk::raii::ShaderModule createShaderModule(const std::vector<char>& code) const {
 		vk::ShaderModuleCreateInfo createInfo {
 			.codeSize = code.size() * sizeof(char),
@@ -977,12 +1093,32 @@ class HelloTriangleApplication
 	}
 
 	void loadModel() {
-		Model model("box.obj");
-		for (size_t i = 0; i < model.nverts(); i++) {
-			float t = i / static_cast<float>(model.nverts());
-			m_vertices.emplace_back(model.vert(i), glm::vec3{t, 0.5f, 0.5f});
+		Model model("donut.obj");
+		m_vertices.clear();
+		m_indices.clear();
+		m_vertices.reserve(model.nfaces() * 3);
+		m_indices.reserve(model.nfaces() * 3);
+		std::map<std::pair<int, int>, uint16_t> uniqueVertices;
+
+		for (int i = 0; i < static_cast<size_t>(model.nfaces()); i++) {
+			for (int j = 0; j < 3; j++) {
+				int vertIndex = model.vertIndex(i, j);
+				int normalIndex = model.normalIndex(i, j);
+				auto key = std::make_pair(vertIndex, normalIndex);
+				auto it = uniqueVertices.find(key);
+
+				if (it == uniqueVertices.end()) {
+					float t = static_cast<float>(vertIndex) / static_cast<float>(model.nverts());
+					Vertex vertex(model.vert(i, j), glm::vec3{t, 0.5f, 0.5f});
+					vertex.normal = model.normal(i, j);
+					uint16_t newIndex = static_cast<uint16_t>(m_vertices.size());
+					m_vertices.push_back(vertex);
+					it = uniqueVertices.emplace(key, newIndex).first;
+				}
+
+				m_indices.push_back(it->second);
+			}
 		}
-		m_indices = model.getIndices();
 	}
 
 	void cleanup()

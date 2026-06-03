@@ -14,8 +14,10 @@ public:
     int nfaces() const;
     glm::vec3 vert(const int i) const;
     glm::vec3 vert(const int iface, const int nthvert) const;
+    int vertIndex(const int iface, const int nthvert) const;
     glm::vec3 normal(const int i) const;
     glm::vec3 normal(const int iface, const int nthvert) const;
+    int normalIndex(const int iface, const int nthvert) const;
     const std::vector<glm::vec3>& getVerts() const {
         return m_Verts;
     }
