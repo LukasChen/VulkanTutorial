@@ -515,7 +515,7 @@ class HelloTriangleApplication
 			.rasterizerDiscardEnable = vk::False,
 			.polygonMode = vk::PolygonMode::eFill,
 			.cullMode = vk::CullModeFlagBits::eBack,
-			.frontFace = vk::FrontFace::eClockwise,
+			.frontFace = vk::FrontFace::eCounterClockwise,
 			.depthBiasEnable = vk::False,
 			.lineWidth = 1.0f
 		};
@@ -979,7 +979,8 @@ class HelloTriangleApplication
 	void loadModel() {
 		Model model("box.obj");
 		for (size_t i = 0; i < model.nverts(); i++) {
-			m_vertices.emplace_back(model.vert(i), glm::vec3{1.0f, 1.0f, 1.0f});
+			float t = i / static_cast<float>(model.nverts());
+			m_vertices.emplace_back(model.vert(i), glm::vec3{t, 0.5f, 0.5f});
 		}
 		m_indices = model.getIndices();
 	}
