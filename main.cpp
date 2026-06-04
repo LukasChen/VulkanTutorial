@@ -49,7 +49,7 @@ struct Vertex {
 	glm::vec3 normal;
 	glm::vec3 color;
 
-	Vertex(glm::vec3 p, glm::vec3 c) : pos(p), color(c) {}
+	Vertex(glm::vec3 p, glm::vec3 n, glm::vec3 c) : pos(p), normal(n), color(c) {}
 
 	static vk::VertexInputBindingDescription getBindingDescription() {
 		return {
@@ -81,10 +81,10 @@ struct UniformBufferObject {
 };
 
 const std::vector<Vertex> vertices = {
-    {{-0.5f, 0.0f, -0.5f}, {1.0f, 0.0f, 0.0f}},
-    {{0.5f, 0.0f, -0.5f}, {0.0f, 1.0f, 0.0f}},
-    {{0.5f, 0.0f, 0.5f}, {0.0f, 0.0f, 1.0f}},
-    {{-0.5f, 0.0f, 0.5f}, {1.0f, 1.0f, 1.0f}}
+    {{-0.5f, 0.0f, -0.5f}, {0.0f, 0.0f, 1.0f}, {1.0f, 0.0f, 0.0f}},
+    {{0.5f, 0.0f, -0.5f}, {0.0f, 0.0f, 1.0f}, {0.0f, 1.0f, 0.0f}},
+    {{0.5f, 0.0f, 0.5f}, {0.0f, 0.0f, 1.0f}, {0.0f, 0.0f, 1.0f}},
+    {{-0.5f, 0.0f, 0.5f}, {0.0f, 0.0f, 1.0f}, {1.0f, 1.0f, 1.0f}}
 };
 
 const std::vector<uint16_t> indices = {
@@ -1120,10 +1120,8 @@ class HelloTriangleApplication
 
 				if (it == uniqueVertices.end()) {
 					float t = static_cast<float>(vertIndex) / static_cast<float>(model.nverts());
-					Vertex vertex(model.vert(i, j), glm::vec3{t, 0.5f, 0.5f});
-					vertex.normal = model.normal(i, j);
 					uint16_t newIndex = static_cast<uint16_t>(m_vertices.size());
-					m_vertices.push_back(vertex);
+					m_vertices.emplace_back(model.vert(i, j), model.normal(i, j), glm::vec3{t, t, t});
 					it = uniqueVertices.emplace(key, newIndex).first;
 				}
 
