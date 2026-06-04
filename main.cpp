@@ -68,12 +68,6 @@ struct Vertex {
 	}
 };
 
-struct UniformInfo {
-	glm::mat4 model;
-	glm::mat4 view;
-	glm::mat4 proj;
-};
-
 struct UniformBufferObject {
 	glm::mat4 m;
 	glm::mat4 vp;
@@ -499,7 +493,7 @@ class HelloTriangleApplication
 			m_swapchainData[i].image = swapChainImages[i];
 		}
 
-		createImageViews();
+		createSwapImageViews();
 		createDepthResources();
 	}
 
@@ -518,7 +512,7 @@ class HelloTriangleApplication
 		m_descriptorSetLayout = m_device.createDescriptorSetLayout(layoutInfo);
 	}
 
-	void createImageViews() {
+	void createSwapImageViews() {
 		assert(std::ranges::all_of(m_swapchainData, [](const auto& swapchainData) { return swapchainData.imageView == nullptr; }));
 
 		vk::ImageViewCreateInfo imageViewCreateInfo {
