@@ -260,9 +260,10 @@ class HelloTriangleApplication
 		auto currentTime = std::chrono::high_resolution_clock::now();
 		float time = std::chrono::duration<float, std::chrono::seconds::period>(currentTime - startTime).count();
 
-		glm::mat4 model = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, sin(time), 0.0f));
-		model = glm::rotate(model, time * glm::radians(90.0f), glm::vec3(0.0f, 1.0f, 0.0f));
-		glm::mat4 view = glm::lookAt(glm::vec3(2.0f, 2.0f, 2.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+		glm::mat4 model = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, 0.0f));
+		model = glm::rotate(model, glm::radians(90.0f), glm::vec3(1.0f, 0.0f, 0.0f));
+		model = glm::rotate(glm::mat4(1.0f), time * glm::radians(90.0f), glm::vec3(0.0f, 1.0f, 0.0f)) * model;
+		glm::mat4 view = glm::lookAt(glm::vec3(0.0f, 0.0f, 2.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
 		glm::mat4 proj = glm::perspective(glm::radians(45.0f), m_swapChainExtent.width / (float)m_swapChainExtent.height, 0.1f, 10.0f);
 		proj[1][1] *= -1;
 
@@ -566,6 +567,14 @@ class HelloTriangleApplication
 		};
 		m_pipelineLayout = vk::raii::PipelineLayout(m_device, pipelineLayoutInfo);
 
+		vk::PipelineDepthStencilStateCreateInfo depthStencil {
+			.depthTestEnable = vk::True,
+			.depthWriteEnable = vk::True,
+			.depthCompareOp = vk::CompareOp::eLess,
+			.depthBoundsTestEnable = vk::False,
+			.stencilTestEnable = vk::False
+		};
+
 		vk::StructureChain<vk::GraphicsPipelineCreateInfo, vk::PipelineRenderingCreateInfo> pipelineCreateInfo {
 			{
 				.stageCount = 2,
@@ -575,6 +584,7 @@ class HelloTriangleApplication
 				.pViewportState = &viewportState,
 				.pRasterizationState = &rasterizer,
 				.pMultisampleState = &multisampling,
+				.pDepthStencilState = &depthStencil,
 				.pColorBlendState = &colorBlending,
 				.pDynamicState = &dynamicState,
 				.layout = m_pipelineLayout,
@@ -582,7 +592,8 @@ class HelloTriangleApplication
 			},
 			{
 				.colorAttachmentCount = 1,
-				.pColorAttachmentFormats = &m_swapChainSurfaceFormat.format
+				.pColorAttachmentFormats = &m_swapChainSurfaceFormat.format,
+				.depthAttachmentFormat = findDepthFormat()
 			}
 		};
 
@@ -612,7 +623,7 @@ class HelloTriangleApplication
 		vk::Format depthFormat = findDepthFormat();
 
 		std::tie(m_depthBuffer, m_depthBufferMemory) = createImage(m_swapChainExtent.width, m_swapChainExtent.height, depthFormat, vk::ImageTiling::eOptimal, vk::ImageUsageFlagBits::eDepthStencilAttachment, vk::MemoryPropertyFlagBits::eDeviceLocal);
-		m_depthImageView = createImageView(m_depthBuffer, depthFormat, vk::ImageAspectFlagBits::eDepth);
+		m_depthBufferImageView = createImageView(*m_depthBuffer, depthFormat, vk::ImageAspectFlagBits::eDepth);
 	}
 
 	void createVertexBuffer() {
@@ -1015,16 +1026,16 @@ class HelloTriangleApplication
 		m_device.waitIdle();
 
 		cleanupSwapChain();
-
 		createSwapChain();
 		createImageViews();
+		createDepthResources();
 	}
 
 	std::pair<vk::raii::Image, vk::raii::DeviceMemory> createImage(
 		uint32_t width, uint32_t height, vk::Format format, vk::ImageTiling tiling, vk::ImageUsageFlags usage, vk::MemoryPropertyFlags properties
 	) {
 		vk::ImageCreateInfo imageInfo {
-			.imageType = vk::ImageType::e2D
+			.imageType = vk::ImageType::e2D,
 			.format = format,
 			.extent = {width, height, 1},
 			.mipLevels = 1,

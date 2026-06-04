@@ -1,4 +1,4 @@
-static float3 lightDir = float3(0, -1.0, 1.0);
+static float3 lightDir = float3(3.0, 1.0, 1.0);
 
 struct UniformBuffer {
     float4x4 modelMatrix;
@@ -25,14 +25,16 @@ V2F vertMain(VSInput input) {
     V2F o;
 
     o.pos = mul(ubo.viewProjectionMatrix, mul(ubo.modelMatrix, float4(input.inPos, 1.0)));
-    o.normal = mul(ubo.normalMatrix, input.inNormal);
+    o.normal = mul(ubo.modelMatrix, float4(input.inNormal, 1.0)).xyz;
     o.color = input.inColor;
     return o;
 }
 
 [shader("fragment")]
 float4 fragMain(V2F input) : SV_Target {
+    float ambient = 0.1f;
     float diffuse = max(dot(normalize(lightDir), normalize(input.normal)), 0.0);
-    float3 color = diffuse * input.color;
+    float lit = ambient + (1.0f - ambient) * diffuse;
+    float3 color = lit * input.color;
     return float4(color, 1.0);
 }
