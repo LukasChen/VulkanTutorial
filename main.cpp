@@ -80,6 +80,25 @@ struct UniformBufferObject {
 	glm::mat3 n;
 };
 
+struct FrameData {
+	vk::raii::CommandBuffer commandBuffer = nullptr;
+	vk::raii::Semaphore presentCompleteSemaphore = nullptr;
+	vk::raii::Fence inFlightFence = nullptr;
+	vk::raii::Buffer uniformBuffer = nullptr;
+	vk::raii::DeviceMemory uniformBufferMemory = nullptr;
+	void* uniformBufferMapped = nullptr;
+	vk::raii::DescriptorSet descriptorSet = nullptr;
+};
+
+struct SwapchainData {
+	vk::Image image = nullptr;
+	vk::raii::ImageView imageView = nullptr;
+	vk::raii::Image depthImage = nullptr;
+	vk::raii::DeviceMemory depthImageMemory = nullptr;
+	vk::raii::ImageView depthImageView = nullptr;
+	vk::raii::Semaphore renderFinishedSemaphore = nullptr;
+};
+
 const std::vector<Vertex> vertices = {
     {{-0.5f, 0.0f, -0.5f}, {0.0f, 0.0f, 1.0f}, {1.0f, 0.0f, 0.0f}},
     {{0.5f, 0.0f, -0.5f}, {0.0f, 0.0f, 1.0f}, {0.0f, 1.0f, 0.0f}},
@@ -116,33 +135,24 @@ class HelloTriangleApplication
 	uint32_t m_transferQueueIndex = ~0;
 	vk::Extent2D m_swapChainExtent;
 	vk::SurfaceFormatKHR m_swapChainSurfaceFormat;
-	std::vector<vk::Image> m_swapChainImages;
-	std::vector<vk::raii::ImageView> m_swapChainImageViews;
+	std::vector<SwapchainData> m_swapchainData;
 	vk::raii::PipelineLayout m_pipelineLayout = nullptr;
 	vk::raii::Pipeline m_graphicsPipeline = nullptr;
 	vk::raii::CommandPool m_commandPool = nullptr;
 	vk::raii::CommandPool m_transferCommandPool = nullptr;
-	std::vector<vk::raii::CommandBuffer> m_commandBuffers;
-	std::vector<vk::raii::Semaphore> m_presentCompleteSemaphores;
-	std::vector<vk::raii::Semaphore> m_renderFinishedSemaphores;
-	std::vector<vk::raii::Fence> m_inFlightFences;
+	vk::raii::DescriptorSetLayout m_descriptorSetLayout = nullptr;
+	vk::raii::DescriptorPool m_descriptorPool = nullptr;
+	std::vector<FrameData> m_frames;
 	vk::raii::Buffer m_vertexBuffer = nullptr;
 	vk::raii::DeviceMemory m_vertexBufferMemory = nullptr;
 	vk::raii::Buffer m_indexBuffer = nullptr;
 	vk::raii::DeviceMemory m_indexBufferMemory = nullptr;
-	std::vector<vk::raii::Buffer> m_uniformBuffers;
-	std::vector<vk::raii::DeviceMemory> m_uniformBuffersMemory;
-	std::vector<void*> m_uniformBuffersMapped;
 	uint32_t m_frameIndex = 0;
 	bool m_framebufferResized = false;
-	vk::raii::DescriptorSetLayout m_descriptorSetLayout = nullptr;
-	vk::raii::DescriptorPool m_descriptorPool = nullptr;
-	std::vector<vk::raii::DescriptorSet> m_descriptorSets;
 	std::vector<Vertex> m_vertices;
 	std::vector<uint16_t> m_indices;
-	vk::raii::Image m_depthBuffer = nullptr;
-	vk::raii::DeviceMemory m_depthBufferMemory = nullptr;
-	vk::raii::ImageView m_depthBufferImageView = nullptr;
+
+	bool m_swapChainInited = false;
 
 	bool hasDedicatedTransferQueueFamily() const {
 		return m_transferQueueIndex != m_graphicsQueueIndex;
@@ -154,6 +164,14 @@ class HelloTriangleApplication
 
 	vk::raii::CommandPool& transferCommandPool() {
 		return hasDedicatedTransferQueueFamily() ? m_transferCommandPool : m_commandPool;
+	}
+
+	FrameData& currentFrame() {
+		return m_frames[m_frameIndex];
+	}
+
+	SwapchainData& currentSwapchainData(uint32_t imageIndex) {
+		return m_swapchainData[imageIndex];
 	}
 
 	void initWindow()
@@ -181,14 +199,13 @@ class HelloTriangleApplication
 		pickPhysicalDevice();
 		createLogicalDevice();
 		createSwapChain();
-		createImageViews();
 		createDescriptorSetLayout();
 		createGraphicsPipeline();
 		createCommandPool();
-		createDepthResources();
 		loadModel();
 		createVertexBuffer();
 		createIndexBuffer();
+		createFrameResources();
 		createUniformBuffers();
 		createDescriptorPool();
 		createDescriptorSets();
@@ -197,12 +214,13 @@ class HelloTriangleApplication
 	}
 
 	void drawFrame() {
-		auto fenceResult = m_device.waitForFences(*m_inFlightFences[m_frameIndex], VK_TRUE, std::numeric_limits<uint64_t>::max());
+		auto& frame = currentFrame();
+		auto fenceResult = m_device.waitForFences(*frame.inFlightFence, VK_TRUE, std::numeric_limits<uint64_t>::max());
 		if (fenceResult != vk::Result::eSuccess) {
 			throw std::runtime_error("Failed to wait for fence");
 		}
 
-		auto [result, imageIndex] = m_swapChain.acquireNextImage(std::numeric_limits<uint64_t>::max(), *m_presentCompleteSemaphores[m_frameIndex], nullptr);
+		auto [result, imageIndex] = m_swapChain.acquireNextImage(std::numeric_limits<uint64_t>::max(), *frame.presentCompleteSemaphore, nullptr);
 
 		if (result == vk::Result::eErrorOutOfDateKHR) {
 			recreateSwapChain();
@@ -215,30 +233,30 @@ class HelloTriangleApplication
 			throw std::runtime_error("failed to acquire swap chain image!");
 		}
 
-		m_device.resetFences(*m_inFlightFences[m_frameIndex]);
+		auto& swapchainData = currentSwapchainData(imageIndex);
 
-		m_commandBuffers[m_frameIndex].reset();
+		m_device.resetFences(*frame.inFlightFence);
+
+		frame.commandBuffer.reset();
 		updateUniformBuffer(m_frameIndex);
 		recordCommandBuffer(imageIndex);
-
-		m_graphicsQueue.waitIdle();
 
 		vk::PipelineStageFlags waitDestinationStageMask(vk::PipelineStageFlagBits::eColorAttachmentOutput);
 		const vk::SubmitInfo submitInfo {
 			.waitSemaphoreCount = 1,
-			.pWaitSemaphores    = &*m_presentCompleteSemaphores[m_frameIndex],
+			.pWaitSemaphores    = &*frame.presentCompleteSemaphore,
 			.pWaitDstStageMask  = &waitDestinationStageMask,
 			.commandBufferCount = 1,
-			.pCommandBuffers    = &*m_commandBuffers[m_frameIndex],
+			.pCommandBuffers    = &*frame.commandBuffer,
 			.signalSemaphoreCount = 1,
-			.pSignalSemaphores   = &*m_renderFinishedSemaphores[imageIndex]
+			.pSignalSemaphores   = &*swapchainData.renderFinishedSemaphore
 		};
 
-		m_graphicsQueue.submit(submitInfo, *m_inFlightFences[m_frameIndex]);
+		m_graphicsQueue.submit(submitInfo, *frame.inFlightFence);
 
 		const vk::PresentInfoKHR presentInfoKHR {
 			.waitSemaphoreCount = 1,
-			.pWaitSemaphores = &*m_renderFinishedSemaphores[imageIndex],
+			.pWaitSemaphores = &*swapchainData.renderFinishedSemaphore,
 			.swapchainCount      = 1,
 			.pSwapchains         = &*m_swapChain,
 			.pImageIndices       = &imageIndex
@@ -255,7 +273,11 @@ class HelloTriangleApplication
 		m_frameIndex = (m_frameIndex + 1) % MAX_FRAMES_IN_FLIGHT;
 	}
 
-	void updateUniformBuffer(uint32_t currentImage) {
+	void createFrameResources() {
+		m_frames.resize(MAX_FRAMES_IN_FLIGHT);
+	}
+
+	void updateUniformBuffer(uint32_t currentFrameIndex) {
 		static auto startTime = std::chrono::high_resolution_clock::now();
 		auto currentTime = std::chrono::high_resolution_clock::now();
 		float time = std::chrono::duration<float, std::chrono::seconds::period>(currentTime - startTime).count();
@@ -275,7 +297,7 @@ class HelloTriangleApplication
 			normalMatrix
 		};
 
-		memcpy(m_uniformBuffersMapped[currentImage], &ubo, sizeof(ubo));
+		memcpy(m_frames[currentFrameIndex].uniformBufferMapped, &ubo, sizeof(ubo));
 	}
 
 	void createInstance() {
@@ -458,7 +480,27 @@ class HelloTriangleApplication
 		};
 
 		m_swapChain = vk::raii::SwapchainKHR(m_device, swapChainCreateInfo);
-		m_swapChainImages = m_swapChain.getImages();
+		auto swapChainImages = m_swapChain.getImages();
+		if (!m_swapChainInited) {
+			m_swapchainData.resize(swapChainImages.size());
+			m_swapChainInited = true;
+		} else {
+			for (auto& swapchainData : m_swapchainData) {
+				swapchainData.image = nullptr;
+				swapchainData.imageView = nullptr;
+				swapchainData.depthImageView = nullptr;
+				swapchainData.depthImage = nullptr;
+				swapchainData.depthImageMemory = nullptr;
+				swapchainData.depthImageView = nullptr;
+			}
+		}
+
+		for (size_t i = 0; i < swapChainImages.size(); i++) {
+			m_swapchainData[i].image = swapChainImages[i];
+		}
+
+		createImageViews();
+		createDepthResources();
 	}
 
 	void createDescriptorSetLayout() {
@@ -477,7 +519,7 @@ class HelloTriangleApplication
 	}
 
 	void createImageViews() {
-		assert(m_swapChainImageViews.empty());
+		assert(std::ranges::all_of(m_swapchainData, [](const auto& swapchainData) { return swapchainData.imageView == nullptr; }));
 
 		vk::ImageViewCreateInfo imageViewCreateInfo {
 			.viewType = vk::ImageViewType::e2D,
@@ -491,9 +533,9 @@ class HelloTriangleApplication
 			}
 		};
 
-		for (auto& image : m_swapChainImages) {
-			imageViewCreateInfo.image = image;
-			m_swapChainImageViews.emplace_back(m_device, imageViewCreateInfo);
+		for (auto& swapchainData : m_swapchainData) {
+			imageViewCreateInfo.image = swapchainData.image;
+			swapchainData.imageView = vk::raii::ImageView(m_device, imageViewCreateInfo);
 		}
 	}
 
@@ -513,7 +555,7 @@ class HelloTriangleApplication
 			.pName = "fragMain"
 		};
 
-		vk::PipelineShaderStageCreateInfo shaderStages[] = {vertShaderStageInfo, fragShaderStageInfo};
+		std::array<vk::PipelineShaderStageCreateInfo, 2> shaderStages = {vertShaderStageInfo, fragShaderStageInfo};
 
 		auto bindingDescription = Vertex::getBindingDescription();
 		auto attributeDescriptions = Vertex::getAttributeDescriptions();
@@ -554,7 +596,7 @@ class HelloTriangleApplication
 			.pAttachments = &colorBlendAttachment
 		};
 
-		std::vector<vk::DynamicState> dynamicStates = {vk::DynamicState::eViewport, vk::DynamicState::eScissor};
+		std::array<vk::DynamicState, 2> dynamicStates = {vk::DynamicState::eViewport, vk::DynamicState::eScissor};
 		vk::PipelineDynamicStateCreateInfo dynamicState {
 			.dynamicStateCount = static_cast<uint32_t>(dynamicStates.size()),
 			.pDynamicStates = dynamicStates.data()
@@ -577,8 +619,8 @@ class HelloTriangleApplication
 
 		vk::StructureChain<vk::GraphicsPipelineCreateInfo, vk::PipelineRenderingCreateInfo> pipelineCreateInfo {
 			{
-				.stageCount = 2,
-				.pStages = shaderStages,
+				.stageCount = static_cast<uint32_t>(shaderStages.size()),
+				.pStages = shaderStages.data(),
 				.pVertexInputState = &vertexInputInfo,
 				.pInputAssemblyState = &inputAssembly,
 				.pViewportState = &viewportState,
@@ -622,8 +664,17 @@ class HelloTriangleApplication
 	void createDepthResources() {
 		vk::Format depthFormat = findDepthFormat();
 
-		std::tie(m_depthBuffer, m_depthBufferMemory) = createImage(m_swapChainExtent.width, m_swapChainExtent.height, depthFormat, vk::ImageTiling::eOptimal, vk::ImageUsageFlagBits::eDepthStencilAttachment, vk::MemoryPropertyFlagBits::eDeviceLocal);
-		m_depthBufferImageView = createImageView(*m_depthBuffer, depthFormat, vk::ImageAspectFlagBits::eDepth);
+		for (auto& swapchainData : m_swapchainData) {
+			std::tie(swapchainData.depthImage, swapchainData.depthImageMemory) = createImage(
+				m_swapChainExtent.width,
+				m_swapChainExtent.height,
+				depthFormat,
+				vk::ImageTiling::eOptimal,
+				vk::ImageUsageFlagBits::eDepthStencilAttachment,
+				vk::MemoryPropertyFlagBits::eDeviceLocal
+			);
+			swapchainData.depthImageView = createImageView(*swapchainData.depthImage, depthFormat, vk::ImageAspectFlagBits::eDepth);
+		}
 	}
 
 	void createVertexBuffer() {
@@ -662,9 +713,10 @@ class HelloTriangleApplication
 			vk::DeviceSize bufferSize = sizeof(UniformBufferObject);
 			auto [buffer, bufferMem] = 
 				createBuffer(bufferSize, vk::BufferUsageFlagBits::eUniformBuffer, vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent);
-			m_uniformBuffers.emplace_back(std::move(buffer));
-			m_uniformBuffersMemory.emplace_back(std::move(bufferMem));
-			m_uniformBuffersMapped.emplace_back(m_uniformBuffersMemory.back().mapMemory(0, bufferSize));
+			auto& frame = m_frames[i];
+			frame.uniformBuffer = std::move(buffer);
+			frame.uniformBufferMemory = std::move(bufferMem);
+			frame.uniformBufferMapped = frame.uniformBufferMemory.mapMemory(0, bufferSize);
 		}
 	}
 
@@ -691,16 +743,18 @@ class HelloTriangleApplication
 			.descriptorSetCount = static_cast<uint32_t>(layouts.size()),
 			.pSetLayouts = layouts.data()
 		};
-		m_descriptorSets = m_device.allocateDescriptorSets(allocInfo);
+		auto descriptorSets = m_device.allocateDescriptorSets(allocInfo);
 
 		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+			auto& frame = m_frames[i];
+			frame.descriptorSet = std::move(descriptorSets[i]);
 			vk::DescriptorBufferInfo bufferInfo {
-				.buffer = m_uniformBuffers[i],
+				.buffer = frame.uniformBuffer,
 				.offset = 0,
 				.range = sizeof(UniformBufferObject)
 			};
 			vk::WriteDescriptorSet descriptorWrite {
-				.dstSet = m_descriptorSets[i],
+				.dstSet = frame.descriptorSet,
 				.dstBinding = 0,
 				.dstArrayElement = 0,
 				.descriptorCount = 1,
@@ -761,28 +815,33 @@ class HelloTriangleApplication
 			.commandBufferCount = MAX_FRAMES_IN_FLIGHT
 		};
 
-		m_commandBuffers = vk::raii::CommandBuffers(m_device, allocInfo);
+		auto commandBuffers = vk::raii::CommandBuffers(m_device, allocInfo);
+		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+			m_frames[i].commandBuffer = std::move(commandBuffers[i]);
+		}
 	}
 
 	void createSyncObjects() {
-		for (size_t i = 0; i < m_swapChainImages.size(); i++) {
-			m_renderFinishedSemaphores.emplace_back(m_device, vk::SemaphoreCreateInfo());
+		for (auto& swapchainData : m_swapchainData) {
+			swapchainData.renderFinishedSemaphore = vk::raii::Semaphore(m_device, vk::SemaphoreCreateInfo());
 		}
 
 		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
-			m_presentCompleteSemaphores.emplace_back(m_device, vk::SemaphoreCreateInfo());
-			m_inFlightFences.emplace_back(m_device, vk::FenceCreateInfo{
+			auto& frame = m_frames[i];
+			frame.presentCompleteSemaphore = vk::raii::Semaphore(m_device, vk::SemaphoreCreateInfo());
+			frame.inFlightFence = vk::raii::Fence(m_device, vk::FenceCreateInfo{
 				.flags = vk::FenceCreateFlagBits::eSignaled
 			});
 		}
 	}
 
 	void recordCommandBuffer(uint32_t index) {
-		auto& commandBuffer = m_commandBuffers[m_frameIndex];
+		auto& commandBuffer = currentFrame().commandBuffer;
+		auto& swapchainData = currentSwapchainData(index);
 		commandBuffer.begin({});
 
 		transition_image_layout(
-			m_swapChainImages[index],
+			swapchainData.image,
 			vk::ImageLayout::eUndefined,
 			vk::ImageLayout::eColorAttachmentOptimal,
 			{},
@@ -792,7 +851,7 @@ class HelloTriangleApplication
 			vk::ImageAspectFlagBits::eColor
 		);
 		transition_image_layout(
-			*m_depthBuffer,
+			*swapchainData.depthImage,
 			vk::ImageLayout::eUndefined,
 			vk::ImageLayout::eDepthAttachmentOptimal,
 			vk::AccessFlagBits2::eDepthStencilAttachmentWrite,
@@ -805,7 +864,7 @@ class HelloTriangleApplication
 		vk::ClearValue clearColor = vk::ClearColorValue(0.0f, 0.0f, 0.0f, 1.0f);
 		vk::ClearValue clearDepth = vk::ClearDepthStencilValue(1.0f, 0);
 		vk::RenderingAttachmentInfo attachmentInfo = {
-			.imageView = m_swapChainImageViews[index],
+			.imageView = swapchainData.imageView,
 			.imageLayout = vk::ImageLayout::eColorAttachmentOptimal,
 			.loadOp = vk::AttachmentLoadOp::eClear,
 			.storeOp = vk::AttachmentStoreOp::eStore,
@@ -813,7 +872,7 @@ class HelloTriangleApplication
 		};
 
 		vk::RenderingAttachmentInfo depthAttachmentInfo = {
-			.imageView = m_depthBufferImageView,
+			.imageView = swapchainData.depthImageView,
 			.imageLayout = vk::ImageLayout::eDepthAttachmentOptimal,
 			.loadOp = vk::AttachmentLoadOp::eClear,
 			.storeOp = vk::AttachmentStoreOp::eDontCare,
@@ -834,7 +893,7 @@ class HelloTriangleApplication
 		commandBuffer.bindVertexBuffers(0, *m_vertexBuffer, {0});
 		commandBuffer.bindIndexBuffer(*m_indexBuffer, 0, vk::IndexType::eUint16);
 
-		commandBuffer.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, m_pipelineLayout, 0, *m_descriptorSets[m_frameIndex], nullptr);
+		commandBuffer.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, m_pipelineLayout, 0, *currentFrame().descriptorSet, nullptr);
 
 		commandBuffer.setViewport(0, vk::Viewport(0.0f, 0.0f, static_cast<float>(m_swapChainExtent.width), static_cast<float>(m_swapChainExtent.height), 0.0f, 1.0f));
 		commandBuffer.setScissor(0, vk::Rect2D({0, 0}, m_swapChainExtent));
@@ -844,7 +903,7 @@ class HelloTriangleApplication
 		commandBuffer.endRendering();
 
 		transition_image_layout(
-			m_swapChainImages[index],
+			swapchainData.image,
 			vk::ImageLayout::eColorAttachmentOptimal,
 			vk::ImageLayout::ePresentSrcKHR,
 			vk::AccessFlagBits2::eColorAttachmentWrite,
@@ -890,7 +949,7 @@ class HelloTriangleApplication
 			.imageMemoryBarrierCount = 1,
 			.pImageMemoryBarriers = &barrier
 		};
-		m_commandBuffers[m_frameIndex].pipelineBarrier2(dependency_info);
+		currentFrame().commandBuffer.pipelineBarrier2(dependency_info);
 	}
 
 	std::pair<vk::raii::Buffer, vk::raii::DeviceMemory> createBuffer(vk::DeviceSize size, vk::BufferUsageFlags usage, vk::MemoryPropertyFlags properties) {
@@ -958,7 +1017,7 @@ class HelloTriangleApplication
 
 	vk::Format findDepthFormat() {
 		return findSupportedFormat(
-			std::to_array<vk::Format>({vk::Format::eD32Sfloat, vk::Format::eD32SfloatS8Uint, vk::Format::eD24UnormS8Uint}),
+			std::array{vk::Format::eD32Sfloat, vk::Format::eD32SfloatS8Uint, vk::Format::eD24UnormS8Uint},
 			vk::ImageTiling::eOptimal,
 			vk::FormatFeatureFlagBits::eDepthStencilAttachment
 		);
@@ -1011,7 +1070,6 @@ class HelloTriangleApplication
 	}
 
 	void cleanupSwapChain() {
-		m_swapChainImageViews.clear();
 		m_swapChain = nullptr;
 	}
 
@@ -1027,8 +1085,6 @@ class HelloTriangleApplication
 
 		cleanupSwapChain();
 		createSwapChain();
-		createImageViews();
-		createDepthResources();
 	}
 
 	std::pair<vk::raii::Image, vk::raii::DeviceMemory> createImage(
