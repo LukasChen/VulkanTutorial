@@ -8,14 +8,93 @@
 #include <tuple>
 #include <utility>
 
-Engine::Engine(std::vector<Vertex> vertices, std::vector<uint16_t> indices)
-	: m_vertices(std::move(vertices)), m_indices(std::move(indices)) {
+#include "../components/components_common.h"
+
+Engine::Engine(Registry& registry)
+	: m_registry(registry) {
 	initWindow();
 	initVulkan();
 }
 
 Engine::~Engine() {
 	cleanup();
+}
+
+void Engine::createMeshEntity(Entity entity, std::pair<std::vector<Vertex>, std::vector<uint16_t>>& meshData) {
+	vk::DeviceSize vertexBufferSize = meshData.first.size() * sizeof(Vertex);
+	auto [vertexBuffer, vertexBufferMemory] = createMeshBuffer(vertexBufferSize, meshData.first.data(), vk::BufferUsageFlagBits::eVertexBuffer);
+
+	vk::DeviceSize indexBufferSize = meshData.second.size() * sizeof(uint16_t);
+	auto [indexBuffer, indexBufferMemory] = createMeshBuffer(indexBufferSize, meshData.second.data(), vk::BufferUsageFlagBits::eIndexBuffer);
+
+	m_meshResources.emplace(entity, MeshResources{
+		std::move(vertexBuffer),
+		std::move(vertexBufferMemory),
+		std::move(indexBuffer),
+		std::move(indexBufferMemory),
+		static_cast<uint16_t>(meshData.second.size())
+	});
+
+	createUniformDescriptors(entity);
+}
+
+void Engine::createUniformDescriptors(Entity entity) {
+	std::vector<vk::DescriptorSetLayout> layouts(MAX_FRAMES_IN_FLIGHT, *m_descriptorSetLayout);
+	vk::DescriptorSetAllocateInfo allocInfo{
+		.descriptorPool = m_descriptorPool,
+		.descriptorSetCount = static_cast<uint32_t>(layouts.size()),
+		.pSetLayouts = layouts.data()
+	};
+	auto descriptorSets = m_device.allocateDescriptorSets(allocInfo);
+
+	for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+		vk::DeviceSize bufferSize = sizeof(UniformBufferObject);
+		auto [buffer, bufferMem] = createBuffer(
+			bufferSize,
+			vk::BufferUsageFlagBits::eUniformBuffer,
+			vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent
+		);
+		auto& frame = m_frames[i];
+		frame.entityResources[entity].uniformBuffer = std::move(buffer);
+		frame.entityResources[entity].uniformBufferMemory = std::move(bufferMem);
+		frame.entityResources[entity].uniformBufferMapped = frame.entityResources[entity].uniformBufferMemory.mapMemory(0, bufferSize);
+
+		frame.entityResources[entity].descriptorSet = std::move(descriptorSets[i]);
+		vk::DescriptorBufferInfo bufferInfo{
+			.buffer = frame.entityResources[entity].uniformBuffer,
+			.offset = 0,
+			.range = sizeof(UniformBufferObject)
+		};
+		vk::WriteDescriptorSet descriptorWrite{
+			.dstSet = frame.entityResources[entity].descriptorSet,
+			.dstBinding = 0,
+			.descriptorCount = 1,
+			.descriptorType = vk::DescriptorType::eUniformBuffer,
+			.pBufferInfo = &bufferInfo,
+		};
+		m_device.updateDescriptorSets(descriptorWrite, {});
+	}
+}
+
+void Engine::updateUniformBuffers(uint32_t currentFrameIndex) {
+	auto view = m_registry.view<Transform, Mesh>();
+	for (auto it = view.begin(); it != view.end(); ++it) {
+		const Entity entity = it.entity();
+		auto [transform, mesh] = *it;
+		auto& enttResource = currentFrame().entityResources[entity];
+
+		glm::mat4 model = glm::translate(glm::mat4(1.0f), transform.position);
+		model = glm::rotate(model, glm::radians(90.0f), glm::vec3(1.0f, 0.0f, 0.0f));
+		// model = glm::rotate(model, glm::radians(90.0f), glm::vec3(1.0f, 0.0f, 0.0f));
+		// model = glm::rotate(glm::mat4(1.0f), glm::radians(90.0f), glm::vec3(0.0f, 1.0f, 0.0f)) * model;
+		glm::mat4 view = glm::lookAt(glm::vec3(0.0f, 0.0f, 2.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+		glm::mat4 proj = glm::perspective(glm::radians(45.0f), m_swapChainExtent.width / static_cast<float>(m_swapChainExtent.height), 0.1f, 10.0f);
+		proj[1][1] *= -1;
+
+		glm::mat3 normalMatrix = glm::transpose(glm::inverse(glm::mat3(model)));
+		UniformBufferObject ubo{model, proj * view, normalMatrix};
+		memcpy(enttResource.uniformBufferMapped, &ubo, sizeof(ubo));
+	}
 }
 
 void Engine::run() {
@@ -66,12 +145,8 @@ void Engine::initVulkan() {
 	createDescriptorSetLayout();
 	createGraphicsPipeline();
 	createCommandPool();
-	createVertexBuffer();
-	createIndexBuffer();
 	createFrameResources();
-	createUniformBuffers();
 	createDescriptorPool();
-	createDescriptorSets();
 	createCommandBuffer();
 	createSyncObjects();
 }
@@ -115,7 +190,8 @@ void Engine::drawFrame() {
 
 	m_device.resetFences(*frame.inFlightFence);
 	frame.commandBuffer.reset();
-	updateUniformBuffer(m_frameIndex);
+	// updateUniformBuffer(m_frameIndex);
+	updateUniformBuffers(m_frameIndex);
 	recordCommandBuffer(imageIndex);
 
 	vk::PipelineStageFlags waitDestinationStageMask(vk::PipelineStageFlagBits::eColorAttachmentOutput);
@@ -575,6 +651,28 @@ void Engine::createIndexBuffer() {
 	copyBuffer(stagingBuffer, m_indexBuffer, bufferSize);
 }
 
+std::pair<vk::raii::Buffer, vk::raii::DeviceMemory> Engine::createMeshBuffer(vk::DeviceSize bufferSize, void* data, vk::BufferUsageFlagBits bufferType) {
+	auto [stagingBuffer, stagingBufferMemory] = createBuffer(
+		bufferSize,
+		vk::BufferUsageFlagBits::eTransferSrc,
+		vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent
+	);
+
+	void* dataStaging = stagingBufferMemory.mapMemory(0, bufferSize);
+	memcpy(dataStaging, data, static_cast<size_t>(bufferSize));
+	stagingBufferMemory.unmapMemory();
+
+	auto [meshBuffer, meshBufferMemory] = createBuffer(
+		bufferSize,
+		vk::BufferUsageFlagBits::eTransferDst | bufferType,
+		vk::MemoryPropertyFlagBits::eDeviceLocal
+	);
+
+	copyBuffer(stagingBuffer, meshBuffer, bufferSize);
+	return {std::move(meshBuffer), std::move(meshBufferMemory)};
+}
+
+
 void Engine::createUniformBuffers() {
 	for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
 		vk::DeviceSize bufferSize = sizeof(UniformBufferObject);
@@ -598,7 +696,7 @@ void Engine::createDescriptorPool() {
 
 	vk::DescriptorPoolCreateInfo poolInfo{
 		.flags = vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet,
-		.maxSets = MAX_FRAMES_IN_FLIGHT,
+		.maxSets = 4096,
 		.poolSizeCount = 1,
 		.pPoolSizes = &poolSize
 	};
@@ -756,12 +854,21 @@ void Engine::recordCommandBuffer(uint32_t index) {
 
 	commandBuffer.beginRendering(renderingInfo);
 	commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, *m_graphicsPipeline);
-	commandBuffer.bindVertexBuffers(0, *m_vertexBuffer, {0});
-	commandBuffer.bindIndexBuffer(*m_indexBuffer, 0, vk::IndexType::eUint16);
-	commandBuffer.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, m_pipelineLayout, 0, *currentFrame().descriptorSet, nullptr);
 	commandBuffer.setViewport(0, vk::Viewport(0.0f, 0.0f, static_cast<float>(m_swapChainExtent.width), static_cast<float>(m_swapChainExtent.height), 0.0f, 1.0f));
 	commandBuffer.setScissor(0, vk::Rect2D({0, 0}, m_swapChainExtent));
-	commandBuffer.drawIndexed(static_cast<uint32_t>(m_indices.size()), 1, 0, 0, 0);
+
+
+	for (const auto& [entity, meshResource] : m_meshResources) {
+		commandBuffer.bindVertexBuffers(0, *meshResource.vertexBuffer, {0});
+		commandBuffer.bindIndexBuffer(*meshResource.indexBuffer, 0, vk::IndexType::eUint16);
+		commandBuffer.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, m_pipelineLayout, 0, *currentFrame().entityResources[entity].descriptorSet, nullptr);
+		commandBuffer.drawIndexed(meshResource.indiceSize, 1, 0, 0, 0);
+	}
+
+	// commandBuffer.bindVertexBuffers(0, *m_vertexBuffer, {0});
+	// commandBuffer.bindIndexBuffer(*m_indexBuffer, 0, vk::IndexType::eUint16);
+	// commandBuffer.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, m_pipelineLayout, 0, *currentFrame().descriptorSet, nullptr);
+	// commandBuffer.drawIndexed(static_cast<uint32_t>(m_indices.size()), 1, 0, 0, 0);
 	commandBuffer.endRendering();
 
 	transitionImageLayout(

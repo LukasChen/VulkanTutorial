@@ -36,6 +36,8 @@ inline constexpr bool enableValidationLayers = false;
 inline constexpr bool enableValidationLayers = true;
 #endif
 
+#include "ecs/ecs.hpp"
+
 struct Vertex {
 	glm::vec3 pos;
 	glm::vec3 normal;
@@ -66,6 +68,21 @@ struct UniformBufferObject {
 	glm::mat3 n;
 };
 
+struct EntityResources {
+	vk::raii::Buffer uniformBuffer = nullptr;
+	vk::raii::DeviceMemory uniformBufferMemory = nullptr;
+	void* uniformBufferMapped = nullptr;
+	vk::raii::DescriptorSet descriptorSet = nullptr;
+};
+
+struct MeshResources {
+	vk::raii::Buffer vertexBuffer = nullptr;
+	vk::raii::DeviceMemory vertexBufferMemory = nullptr;
+	vk::raii::Buffer indexBuffer = nullptr;
+	vk::raii::DeviceMemory indexBufferMemory = nullptr;
+	uint16_t indiceSize;
+};
+
 struct FrameData {
 	vk::raii::CommandBuffer commandBuffer = nullptr;
 	vk::raii::Semaphore presentCompleteSemaphore = nullptr;
@@ -74,6 +91,7 @@ struct FrameData {
 	vk::raii::DeviceMemory uniformBufferMemory = nullptr;
 	void* uniformBufferMapped = nullptr;
 	vk::raii::DescriptorSet descriptorSet = nullptr;
+	std::unordered_map<Entity, EntityResources> entityResources;
 };
 
 struct SwapchainData {
@@ -87,8 +105,10 @@ struct SwapchainData {
 
 class Engine {
 public:
-	Engine(std::vector<Vertex> vertices, std::vector<uint16_t> indices);
+	Engine(Registry& registry);
 	~Engine();
+
+	void createMeshEntity(Entity entity, std::pair<std::vector<Vertex>, std::vector<uint16_t>>& meshData);
 
 	void run();
 
@@ -124,6 +144,9 @@ private:
 	bool m_framebufferResized = false;
 	bool m_swapChainInitialized = false;
 
+	Registry& m_registry;
+	std::unordered_map<Entity, MeshResources> m_meshResources;
+
 	std::vector<Vertex> m_vertices;
 	std::vector<uint16_t> m_indices;
 
@@ -141,6 +164,7 @@ private:
 
 	void createFrameResources();
 	void updateUniformBuffer(uint32_t currentFrameIndex);
+	void updateUniformBuffers(uint32_t currentFrameIndex);
 
 	void createInstance();
 	void createSurface();
@@ -162,6 +186,7 @@ private:
 	void createCommandBuffer();
 	void createSyncObjects();
 	void recordCommandBuffer(uint32_t index);
+	void drawEntity();
 	void transitionImageLayout(
 		vk::Image image,
 		vk::ImageLayout oldLayout,
@@ -186,6 +211,8 @@ private:
 		vk::BufferUsageFlags usage,
 		vk::MemoryPropertyFlags properties
 	);
+	std::pair<vk::raii::Buffer, vk::raii::DeviceMemory> createMeshBuffer(vk::DeviceSize bufferSize, void* data, vk::BufferUsageFlagBits bufferType);
+	void createUniformDescriptors(Entity entity);
 	void copyBuffer(vk::raii::Buffer& srcBuffer, vk::raii::Buffer& dstBuffer, vk::DeviceSize size);
 	vk::SurfaceFormatKHR chooseSwapSurfaceFormat(std::vector<vk::SurfaceFormatKHR> const& availableFormats);
 	vk::Format findSupportedFormat(std::span<const vk::Format> candidates, vk::ImageTiling tiling, vk::FormatFeatureFlags features);

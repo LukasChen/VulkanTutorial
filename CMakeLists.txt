@@ -80,7 +80,11 @@ add_executable (${TEMPLATE_NAME} main.cpp engine.cpp model.cpp)
 set_target_properties (${TEMPLATE_NAME} PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${TEMPLATE_DIR})
 set_target_properties (${TEMPLATE_NAME} PROPERTIES CXX_STANDARD 20)
 target_link_libraries (${TEMPLATE_NAME} Vulkan::cppm glfw)
-target_include_directories (${TEMPLATE_NAME} PRIVATE ${STB_INCLUDEDIR})
+target_include_directories (${TEMPLATE_NAME} PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}
+  ${CMAKE_CURRENT_SOURCE_DIR}/ecs
+  ${STB_INCLUDEDIR}
+)
 
 # Add compile definition if C++ 20 module is enabled
 if(ENABLE_CPP20_MODULE)

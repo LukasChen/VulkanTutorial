@@ -4,20 +4,11 @@
 #include <stdexcept>
 #include <utility>
 #include <vector>
+#include <glm/glm.hpp>
 
 #include "engine.h"
 #include "model.h"
-
-const std::vector<Vertex> vertices = {
-	{{-0.5f, 0.0f, -0.5f}, {0.0f, 0.0f, 1.0f}, {1.0f, 0.0f, 0.0f}},
-	{{0.5f, 0.0f, -0.5f}, {0.0f, 0.0f, 1.0f}, {0.0f, 1.0f, 0.0f}},
-	{{0.5f, 0.0f, 0.5f}, {0.0f, 0.0f, 1.0f}, {0.0f, 0.0f, 1.0f}},
-	{{-0.5f, 0.0f, 0.5f}, {0.0f, 0.0f, 1.0f}, {1.0f, 1.0f, 1.0f}}
-};
-
-const std::vector<uint16_t> indices = {
-	0, 1, 2, 2, 3, 0
-};
+#include "components/components_common.h"
 
 std::pair<std::vector<Vertex>, std::vector<uint16_t>> loadModel(const char* path) {
 	Model model(path);
@@ -48,10 +39,31 @@ std::pair<std::vector<Vertex>, std::vector<uint16_t>> loadModel(const char* path
 	return {std::move(modelVertices), std::move(modelIndices)};
 }
 
+void addMeshEntity(std::pair<std::vector<Vertex>, std::vector<uint16_t>>& meshData, Registry& reg, Engine& engine) {
+	Entity entity = reg.create();
+
+	reg.get<Transform>().addComponent(entity, {glm::vec3{0.0f, 0.0f, 0.0f}});
+	reg.get<Mesh>().addComponent(entity, Mesh());
+
+	engine.createMeshEntity(entity, meshData);
+}
+
+void loadScene(Registry& reg, Engine& engine) {
+	auto meshData = loadModel("donut.obj");
+	addMeshEntity(meshData, reg, engine);
+	auto boxMeshData = loadModel("box.obj");
+	addMeshEntity(boxMeshData, reg, engine);
+}
+
 int main() {
 	try {
-		auto [modelVertices, modelIndices] = loadModel("donut.obj");
-		Engine app(std::move(modelVertices), std::move(modelIndices));
+
+		Registry reg;
+
+		Engine app(reg);
+
+		loadScene(reg, app);
+
 		app.run();
 	} catch (const std::exception& e) {
 		std::cerr << e.what() << std::endl;
