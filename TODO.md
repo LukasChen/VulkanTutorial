@@ -22,12 +22,12 @@
 
 - [x] Add camera
 - [x] Refactor rendering code out of the monolithic engine class.
+- [ ] Add instanced rendering.
 - [ ] Create abstractions for render passes, pipelines, buffers, and materials.
 - [ ] Add mesh, texture, and shader asset management.
 - [ ] Support multiple cameras and viewport rendering.
 - [ ] Add material instances and parameter editing.
 - [ ] Implement frustum culling.
-- [ ] Add instanced rendering.
 - [ ] Add skybox or environment lighting support.
 - [ ] Add shadow mapping.
 - [ ] Add post-processing pipeline support.

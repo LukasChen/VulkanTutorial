@@ -106,7 +106,8 @@ public:
 	Renderer(GLFWwindow* window, Registry& registry, Entity camera);
 	~Renderer();
 
-	void createMeshEntity(Entity entity, const std::pair<std::vector<Vertex>, std::vector<uint16_t>>& meshData);
+	void createMeshEntity(Entity entity, size_t meshHandle);
+	size_t uploadMesh(const std::pair<std::vector<Vertex>, std::vector<uint16_t>>& meshData);
 	void drawFrame();
 	void onFramebufferResized();
 
@@ -139,7 +140,9 @@ private:
 
 	Registry& m_registry;
 	Entity m_camera;
-	std::unordered_map<Entity, MeshResources> m_meshResources;
+	std::vector<MeshResources> m_meshResources;
+	std::unordered_map<Entity, size_t> m_entityToMesh;
+
 
 	bool hasDedicatedTransferQueueFamily() const;
 	vk::raii::Queue& transferQueue();

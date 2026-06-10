@@ -20,7 +20,12 @@ Renderer::~Renderer() {
 	cleanup();
 }
 
-void Renderer::createMeshEntity(Entity entity, const std::pair<std::vector<Vertex>, std::vector<uint16_t>>& meshData) {
+void Renderer::createMeshEntity(Entity entity, size_t meshHandle) {
+	m_entityToMesh[entity] = meshHandle;
+	createUniformDescriptors(entity);
+}
+
+size_t Renderer::uploadMesh(const std::pair<std::vector<Vertex>, std::vector<uint16_t>>& meshData) {
 	const vk::DeviceSize vertexBufferSize = meshData.first.size() * sizeof(Vertex);
 	auto [vertexBuffer, vertexBufferMemory] = createMeshBuffer(
 		vertexBufferSize,
@@ -35,15 +40,15 @@ void Renderer::createMeshEntity(Entity entity, const std::pair<std::vector<Verte
 		vk::BufferUsageFlagBits::eIndexBuffer
 	);
 
-	m_meshResources.emplace(entity, MeshResources{
+	m_meshResources.emplace_back(
 		std::move(vertexBuffer),
 		std::move(vertexBufferMemory),
 		std::move(indexBuffer),
 		std::move(indexBufferMemory),
 		static_cast<uint16_t>(meshData.second.size())
-	});
+	);
 
-	createUniformDescriptors(entity);
+	return m_meshResources.size() - 1;
 }
 
 void Renderer::createUniformDescriptors(Entity entity) {
@@ -779,7 +784,7 @@ void Renderer::recordCommandBuffer(uint32_t imageIndex) {
 	auto view = m_registry.view<Transform, Mesh>();
 	for (auto it = view.begin(); it != view.end(); ++it) {
 		const Entity entity = it.entity();
-		const auto& meshResource = m_meshResources[entity];
+		const auto& meshResource = m_meshResources[m_entityToMesh[entity]];
 		commandBuffer.bindVertexBuffers(0, *meshResource.vertexBuffer, {0});
 		commandBuffer.bindIndexBuffer(*meshResource.indexBuffer, 0, vk::IndexType::eUint16);
 		commandBuffer.bindDescriptorSets(

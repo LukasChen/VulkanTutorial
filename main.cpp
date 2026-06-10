@@ -38,13 +38,12 @@ std::pair<std::vector<Vertex>, std::vector<uint16_t>> loadModel(const char* path
 	return {std::move(modelVertices), std::move(modelIndices)};
 }
 
-Entity addMeshEntity(std::pair<std::vector<Vertex>, std::vector<uint16_t>>& meshData, Registry& reg, Engine& engine) {
+Entity addMeshEntity(Registry& reg, Renderer* renderer, size_t meshHandle) {
 	Entity entity = reg.create();
 
 	reg.get<Transform>().addComponent(entity, {glm::vec3{0.0f, 0.0f, 0.0f}});
 	reg.get<Mesh>().addComponent(entity, Mesh());
-
-	engine.getRenderer()->createMeshEntity(entity, meshData);
+	renderer->createMeshEntity(entity, meshHandle);
 	return entity;
 }
 
@@ -52,9 +51,17 @@ void loadScene(Registry& reg, Engine& engine) {
 	// auto meshData = loadModel("donut.obj");
 	// Entity donut = addMeshEntity(meshData, reg, engine);
 	// reg.get<Transform>().get(donut).position = glm::vec3{0.0f, 0.0f, 0.0f};
+	Renderer* renderer = engine.getRenderer();
+
 	auto boxMeshData = loadModel("box.obj");
-	Entity box = addMeshEntity(boxMeshData, reg, engine);
+	size_t boxMeshHandle = renderer->uploadMesh(boxMeshData);
+	Entity box = addMeshEntity(reg, renderer, boxMeshHandle);
 	reg.get<Transform>().get(box).position = glm::vec3{0.5f, 0.0f, 0.0f};
+
+	// auto donutMeshData = loadModel("donut.obj");
+	// size_t donutMeshHandle = renderer->uploadMesh(donutMeshData);
+	Entity donut = addMeshEntity(reg, renderer, boxMeshHandle);
+	reg.get<Transform>().get(donut).position = glm::vec3{-0.5f, 0.0f, 0.0f};
 }
 
 int main() {
