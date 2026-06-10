@@ -12,7 +12,7 @@
 ## Core Engine
 
 - [ ] Implement a scene system with entities, components, and serialization.
-- [ ] Build an ECS architecture with clear ownership and update ordering.
+- [x] Build an ECS architecture with clear ownership and update ordering.
 - [ ] Add a transform hierarchy for parent-child scene relationships.
 - [ ] Implement a game loop with fixed timestep simulation support.
 - [ ] Add an event or messaging system for engine subsystems.
@@ -20,7 +20,8 @@
 
 ## Rendering
 
-- [ ] Refactor rendering code out of the monolithic engine class.
+- [x] Add camera
+- [x] Refactor rendering code out of the monolithic engine class.
 - [ ] Create abstractions for render passes, pipelines, buffers, and materials.
 - [ ] Add mesh, texture, and shader asset management.
 - [ ] Support multiple cameras and viewport rendering.

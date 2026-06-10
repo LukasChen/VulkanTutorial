@@ -1,4 +1,4 @@
-static float3 lightDir = float3(3.0, 1.0, 1.0);
+static float3 lightDir = float3(0.0, 1.0, 1.0);
 
 struct UniformBuffer {
     float4x4 modelMatrix;
@@ -32,7 +32,7 @@ V2F vertMain(VSInput input) {
 
 [shader("fragment")]
 float4 fragMain(V2F input) : SV_Target {
-    float ambient = 0.1f;
+    float ambient = 0.05f;
     float diffuse = max(dot(normalize(lightDir), normalize(input.normal)), 0.0);
     float lit = ambient + (1.0f - ambient) * diffuse;
     float3 color = lit * input.color;

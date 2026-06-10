@@ -26,9 +26,8 @@ std::pair<std::vector<Vertex>, std::vector<uint16_t>> loadModel(const char* path
 			auto it = uniqueVertices.find(key);
 
 			if (it == uniqueVertices.end()) {
-				float t = static_cast<float>(vertIndex) / static_cast<float>(model.nverts());
 				uint16_t newIndex = static_cast<uint16_t>(modelVertices.size());
-				modelVertices.emplace_back(model.vert(i, j), model.normal(i, j), glm::vec3{t, t, t});
+				modelVertices.emplace_back(model.vert(i, j), model.normal(i, j), glm::vec3{0.5f, 0.5f, 0.5f});
 				it = uniqueVertices.emplace(key, newIndex).first;
 			}
 
@@ -39,20 +38,23 @@ std::pair<std::vector<Vertex>, std::vector<uint16_t>> loadModel(const char* path
 	return {std::move(modelVertices), std::move(modelIndices)};
 }
 
-void addMeshEntity(std::pair<std::vector<Vertex>, std::vector<uint16_t>>& meshData, Registry& reg, Engine& engine) {
+Entity addMeshEntity(std::pair<std::vector<Vertex>, std::vector<uint16_t>>& meshData, Registry& reg, Engine& engine) {
 	Entity entity = reg.create();
 
 	reg.get<Transform>().addComponent(entity, {glm::vec3{0.0f, 0.0f, 0.0f}});
 	reg.get<Mesh>().addComponent(entity, Mesh());
 
-	engine.createMeshEntity(entity, meshData);
+	engine.getRenderer()->createMeshEntity(entity, meshData);
+	return entity;
 }
 
 void loadScene(Registry& reg, Engine& engine) {
-	auto meshData = loadModel("donut.obj");
-	addMeshEntity(meshData, reg, engine);
+	// auto meshData = loadModel("donut.obj");
+	// Entity donut = addMeshEntity(meshData, reg, engine);
+	// reg.get<Transform>().get(donut).position = glm::vec3{0.0f, 0.0f, 0.0f};
 	auto boxMeshData = loadModel("box.obj");
-	addMeshEntity(boxMeshData, reg, engine);
+	Entity box = addMeshEntity(boxMeshData, reg, engine);
+	reg.get<Transform>().get(box).position = glm::vec3{0.5f, 0.0f, 0.0f};
 }
 
 int main() {
