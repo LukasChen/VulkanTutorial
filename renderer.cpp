@@ -21,7 +21,29 @@ Renderer::~Renderer() {
 }
 
 void Renderer::createMeshEntity(Entity entity) {
-	(void)entity;
+	const Mesh* mesh = m_registry.get<Mesh>().tryGet(entity);
+	if (mesh == nullptr) {
+		return;
+	}
+
+	auto batchIt = m_meshToBatchIndex.find(mesh->meshHandle);
+	if (batchIt == m_meshToBatchIndex.end()) {
+		const uint32_t batchIndex = static_cast<uint32_t>(m_instanceBatches.size());
+		batchIt = m_meshToBatchIndex.emplace(mesh->meshHandle, batchIndex).first;
+		m_instanceBatches.push_back({
+			.meshHandle = mesh->meshHandle,
+			.firstInstance = static_cast<uint32_t>(m_instanceCount),
+			.instanceCount = 0
+		});
+	}
+
+	InstanceBatch& batch = m_instanceBatches[batchIt->second];
+	batch.instanceCount++;
+	m_instanceCount++;
+
+	for (uint32_t batchIndex = batchIt->second + 1; batchIndex < m_instanceBatches.size(); batchIndex++) {
+		m_instanceBatches[batchIndex].firstInstance++;
+	}
 }
 
 size_t Renderer::uploadMesh(const std::pair<std::vector<Vertex>, std::vector<uint16_t>>& meshData) {
@@ -48,6 +70,17 @@ size_t Renderer::uploadMesh(const std::pair<std::vector<Vertex>, std::vector<uin
 	);
 
 	return m_meshResources.size() - 1;
+}
+
+void Renderer::rebuildInstanceBatches() {
+	m_instanceBatches.clear();
+	m_meshToBatchIndex.clear();
+	m_instanceCount = 0;
+
+	auto view = m_registry.view<Transform, Mesh>();
+	for (auto it = view.begin(); it != view.end(); ++it) {
+		createMeshEntity(it.entity());
+	}
 }
 
 void Renderer::createFrameDescriptors() {
@@ -112,71 +145,53 @@ void Renderer::updateFrameResources() {
 	const FrameUniformBufferObject ubo{proj * viewMat};
 	memcpy(frameResources.uniformBufferMapped, &ubo, sizeof(ubo));
 
-	std::unordered_map<size_t, uint32_t> meshToBatchIndex;
-	frameResources.instanceBatches.clear();
-	std::vector<std::vector<InstanceData>> instancesByBatch;
-
-	auto view = m_registry.view<Transform, Mesh>();
-	for (auto it = view.begin(); it != view.end(); ++it) {
-		auto [transform, mesh] = *it;
-
-		glm::mat4 model = glm::translate(glm::mat4(1.0f), transform.position);
-		model = glm::rotate(model, time * glm::radians(90.0f), glm::vec3(0.0f, 1.0f, 0.0f));
-
-		const glm::mat3 normalMatrix = glm::transpose(glm::inverse(glm::mat3(model)));
-		const auto batchIt = meshToBatchIndex.find(mesh.meshHandle);
-		if (batchIt == meshToBatchIndex.end()) {
-			const uint32_t batchIndex = static_cast<uint32_t>(frameResources.instanceBatches.size());
-			meshToBatchIndex.emplace(mesh.meshHandle, batchIndex);
-			frameResources.instanceBatches.push_back({
-				.meshHandle = mesh.meshHandle,
-				.firstInstance = 0,
-				.instanceCount = 0
-			});
-			instancesByBatch.emplace_back();
-			instancesByBatch[batchIndex].push_back({model, normalMatrix});
-		} else {
-			instancesByBatch[batchIt->second].push_back({model, normalMatrix});
-		}
-	}
-
-	size_t instanceCount = 0;
-	for (uint32_t batchIndex = 0; batchIndex < frameResources.instanceBatches.size(); batchIndex++) {
-		auto& batch = frameResources.instanceBatches[batchIndex];
-		batch.firstInstance = static_cast<uint32_t>(instanceCount);
-		batch.instanceCount = static_cast<uint32_t>(instancesByBatch[batchIndex].size());
-		instanceCount += instancesByBatch[batchIndex].size();
-	}
-
-	if (instanceCount == 0) {
+	if (m_instanceCount == 0) {
 		return;
 	}
 
-	if (frameResources.instanceCapacity < instanceCount) {
+	if (frameResources.instanceCapacity < m_instanceCount) {
 		if (frameResources.instanceBufferMemory != nullptr && frameResources.instanceBufferMapped != nullptr) {
 			frameResources.instanceBufferMemory.unmapMemory();
 			frameResources.instanceBufferMapped = nullptr;
 		}
 
 		auto [buffer, bufferMem] = createBuffer(
-			sizeof(InstanceData) * instanceCount,
+			sizeof(InstanceData) * m_instanceCount,
 			vk::BufferUsageFlagBits::eVertexBuffer,
 			vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent
 		);
 		frameResources.instanceBuffer = std::move(buffer);
 		frameResources.instanceBufferMemory = std::move(bufferMem);
-		frameResources.instanceBufferMapped = frameResources.instanceBufferMemory.mapMemory(0, sizeof(InstanceData) * instanceCount);
-		frameResources.instanceCapacity = instanceCount;
+		frameResources.instanceBufferMapped = frameResources.instanceBufferMemory.mapMemory(0, sizeof(InstanceData) * m_instanceCount);
+		frameResources.instanceCapacity = m_instanceCount;
 	}
 
-	std::vector<InstanceData> instances;
-	instances.reserve(instanceCount);
-	for (const auto& batchInstances : instancesByBatch) {
-		instances.insert(instances.end(), batchInstances.begin(), batchInstances.end());
-	}
+	std::vector<uint32_t> instanceWriteOffsets(m_instanceBatches.size(), 0);
 
-	const vk::DeviceSize instanceBufferSize = sizeof(InstanceData) * instances.size();
-	memcpy(frameResources.instanceBufferMapped, instances.data(), static_cast<size_t>(instanceBufferSize));
+	auto* instances = static_cast<InstanceData*>(frameResources.instanceBufferMapped);
+	auto view = m_registry.view<Transform, Mesh>();
+	for (auto it = view.begin(); it != view.end(); ++it) {
+		auto [transform, mesh] = *it;
+
+		const auto batchIt = m_meshToBatchIndex.find(mesh.meshHandle);
+		if (batchIt == m_meshToBatchIndex.end()) {
+			continue;
+		}
+
+		const uint32_t batchIndex = batchIt->second;
+		InstanceBatch& batch = m_instanceBatches[batchIndex];
+		const uint32_t batchWriteIndex = instanceWriteOffsets[batchIndex]++;
+		if (batchWriteIndex >= batch.instanceCount) {
+			continue;
+		}
+
+		const uint32_t instanceIndex = batch.firstInstance + batchWriteIndex;
+		glm::mat4 model = glm::translate(glm::mat4(1.0f), transform.position);
+		model = glm::rotate(model, time * glm::radians(90.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+
+		const glm::mat3 normalMatrix = glm::transpose(glm::inverse(glm::mat3(model)));
+		instances[instanceIndex] = {model, normalMatrix};
+	}
 }
 
 void Renderer::drawFrame() {
@@ -852,7 +867,11 @@ void Renderer::recordCommandBuffer(uint32_t imageIndex) {
 		nullptr
 	);
 
-	for (const auto& batch : frameResources.instanceBatches) {
+	for (const auto& batch : m_instanceBatches) {
+		if (batch.instanceCount == 0 || frameResources.instanceBuffer == nullptr) {
+			continue;
+		}
+
 		const auto& meshResource = m_meshResources[batch.meshHandle];
 		std::array vertexBuffers = {*meshResource.vertexBuffer, *frameResources.instanceBuffer};
 		std::array<vk::DeviceSize, 2> offsets = {0, 0};

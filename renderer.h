@@ -110,7 +110,6 @@ struct FrameResources {
 	vk::raii::DeviceMemory instanceBufferMemory = nullptr;
 	void* instanceBufferMapped = nullptr;
 	size_t instanceCapacity = 0;
-	std::vector<InstanceBatch> instanceBatches;
 };
 
 struct MeshResources {
@@ -143,6 +142,7 @@ public:
 	~Renderer();
 
 	void createMeshEntity(Entity entity);
+	void rebuildInstanceBatches();
 	size_t uploadMesh(const std::pair<std::vector<Vertex>, std::vector<uint16_t>>& meshData);
 	void drawFrame();
 	void onFramebufferResized();
@@ -177,6 +177,9 @@ private:
 	Registry& m_registry;
 	Entity m_camera;
 	std::vector<MeshResources> m_meshResources;
+	std::vector<InstanceBatch> m_instanceBatches;
+	std::unordered_map<size_t, uint32_t> m_meshToBatchIndex;
+	size_t m_instanceCount = 0;
 
 
 	bool hasDedicatedTransferQueueFamily() const;

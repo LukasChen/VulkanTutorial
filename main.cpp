@@ -47,6 +47,13 @@ Entity addMeshEntity(Registry& reg, Renderer* renderer, size_t meshHandle) {
 	return entity;
 }
 
+void addDonuts(Registry& reg, Renderer* renderer, size_t meshHandle) {
+	for (int i = 0; i < 10; i++) {
+		Entity donut = addMeshEntity(reg, renderer, meshHandle);
+		reg.get<Transform>().get(donut).position = glm::vec3{0.0f, -(static_cast<float>(i) * 0.1f), -i};
+	}
+}
+
 void loadScene(Registry& reg, Engine& engine) {
 	// auto meshData = loadModel("donut.obj");
 	// Entity donut = addMeshEntity(meshData, reg, engine);
@@ -60,8 +67,7 @@ void loadScene(Registry& reg, Engine& engine) {
 
 	auto donutMeshData = loadModel("donut.obj");
 	size_t donutMeshHandle = renderer->uploadMesh(donutMeshData);
-	Entity donut = addMeshEntity(reg, renderer, donutMeshHandle);
-	reg.get<Transform>().get(donut).position = glm::vec3{-1.0f, 0.0f, 0.0f};
+	addDonuts(reg, renderer, donutMeshHandle);
 }
 
 int main() {
