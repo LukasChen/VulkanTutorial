@@ -40,6 +40,8 @@ inline constexpr bool enableValidationLayers = false;
 inline constexpr bool enableValidationLayers = true;
 #endif
 
+inline const uint32_t MAX_ENTITY_COUNT = 4096;
+
 struct Vertex {
 	glm::vec3 pos;
 	glm::vec3 normal;
@@ -64,17 +66,51 @@ struct Vertex {
 	}
 };
 
-struct UniformBufferObject {
-	glm::mat4 m;
-	glm::mat4 vp;
-	glm::mat3 n;
+struct InstanceData {
+	glm::mat4 model;
+	glm::mat3 normal;
+
+	static vk::VertexInputBindingDescription getBindingDescription() {
+		return {
+			.binding = 1,
+			.stride = sizeof(InstanceData),
+			.inputRate = vk::VertexInputRate::eInstance
+		};
+	}
+
+	static std::array<vk::VertexInputAttributeDescription, 7> getAttributeDescriptions() {
+		return {{
+			{.location = 3, .binding = 1, .format = vk::Format::eR32G32B32A32Sfloat, .offset = offsetof(InstanceData, model) + sizeof(glm::vec4) * 0},
+			{.location = 4, .binding = 1, .format = vk::Format::eR32G32B32A32Sfloat, .offset = offsetof(InstanceData, model) + sizeof(glm::vec4) * 1},
+			{.location = 5, .binding = 1, .format = vk::Format::eR32G32B32A32Sfloat, .offset = offsetof(InstanceData, model) + sizeof(glm::vec4) * 2},
+			{.location = 6, .binding = 1, .format = vk::Format::eR32G32B32A32Sfloat, .offset = offsetof(InstanceData, model) + sizeof(glm::vec4) * 3},
+			{.location = 7, .binding = 1, .format = vk::Format::eR32G32B32Sfloat, .offset = offsetof(InstanceData, normal) + sizeof(glm::vec3) * 0},
+			{.location = 8, .binding = 1, .format = vk::Format::eR32G32B32Sfloat, .offset = offsetof(InstanceData, normal) + sizeof(glm::vec3) * 1},
+			{.location = 9, .binding = 1, .format = vk::Format::eR32G32B32Sfloat, .offset = offsetof(InstanceData, normal) + sizeof(glm::vec3) * 2}
+		}};
+	}
 };
 
-struct EntityResources {
+struct FrameUniformBufferObject {
+	glm::mat4 vp;
+};
+
+struct InstanceBatch {
+	size_t meshHandle;
+	uint32_t firstInstance;
+	uint32_t instanceCount;
+};
+
+struct FrameResources {
 	vk::raii::Buffer uniformBuffer = nullptr;
 	vk::raii::DeviceMemory uniformBufferMemory = nullptr;
 	void* uniformBufferMapped = nullptr;
 	vk::raii::DescriptorSet descriptorSet = nullptr;
+	vk::raii::Buffer instanceBuffer = nullptr;
+	vk::raii::DeviceMemory instanceBufferMemory = nullptr;
+	void* instanceBufferMapped = nullptr;
+	size_t instanceCapacity = 0;
+	std::vector<InstanceBatch> instanceBatches;
 };
 
 struct MeshResources {
@@ -89,7 +125,7 @@ struct FrameData {
 	vk::raii::CommandBuffer commandBuffer = nullptr;
 	vk::raii::Semaphore presentCompleteSemaphore = nullptr;
 	vk::raii::Fence inFlightFence = nullptr;
-	std::unordered_map<Entity, EntityResources> entityResources;
+	FrameResources resources;
 };
 
 struct SwapchainData {
@@ -106,7 +142,7 @@ public:
 	Renderer(GLFWwindow* window, Registry& registry, Entity camera);
 	~Renderer();
 
-	void createMeshEntity(Entity entity, size_t meshHandle);
+	void createMeshEntity(Entity entity);
 	size_t uploadMesh(const std::pair<std::vector<Vertex>, std::vector<uint16_t>>& meshData);
 	void drawFrame();
 	void onFramebufferResized();
@@ -141,7 +177,6 @@ private:
 	Registry& m_registry;
 	Entity m_camera;
 	std::vector<MeshResources> m_meshResources;
-	std::unordered_map<Entity, size_t> m_entityToMesh;
 
 
 	bool hasDedicatedTransferQueueFamily() const;
@@ -154,7 +189,7 @@ private:
 	void cleanup();
 
 	void createFrameResources();
-	void updateUniformBuffers();
+	void updateFrameResources();
 
 	void createInstance();
 	void createSurface();
@@ -169,7 +204,7 @@ private:
 	void createCommandPool();
 	void createDepthResources();
 	void createDescriptorPool();
-	void createUniformDescriptors(Entity entity);
+	void createFrameDescriptors();
 	void createCommandBuffer();
 	void createSyncObjects();
 	void recordCommandBuffer(uint32_t imageIndex);

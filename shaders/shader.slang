@@ -1,15 +1,20 @@
 static float3 lightDir = float3(0.0, 1.0, 1.0);
 
 struct UniformBuffer {
-    float4x4 modelMatrix;
     float4x4 viewProjectionMatrix;
-    float3x3 normalMatrix;
 };
 
 struct VSInput {
     float3 inPos;
     float3 inNormal;
     float3 inColor;
+    float4 instanceModel0;
+    float4 instanceModel1;
+    float4 instanceModel2;
+    float4 instanceModel3;
+    float3 instanceNormal0;
+    float3 instanceNormal1;
+    float3 instanceNormal2;
 };
 
 ConstantBuffer<UniformBuffer> ubo;
@@ -24,8 +29,20 @@ struct V2F {
 V2F vertMain(VSInput input) {
     V2F o;
 
-    o.pos = mul(ubo.viewProjectionMatrix, mul(ubo.modelMatrix, float4(input.inPos, 1.0)));
-    o.normal = mul(ubo.modelMatrix, float4(input.inNormal, 1.0)).xyz;
+    float4x4 modelMatrix = transpose(float4x4(
+        input.instanceModel0,
+        input.instanceModel1,
+        input.instanceModel2,
+        input.instanceModel3
+    ));
+    float3x3 normalMatrix = transpose(float3x3(
+        input.instanceNormal0,
+        input.instanceNormal1,
+        input.instanceNormal2
+    ));
+
+    o.pos = mul(ubo.viewProjectionMatrix, mul(modelMatrix, float4(input.inPos, 1.0)));
+    o.normal = mul(normalMatrix, input.inNormal);
     o.color = input.inColor;
     return o;
 }

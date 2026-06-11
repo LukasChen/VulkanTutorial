@@ -9,5 +9,5 @@ struct Transform {
 };
 
 struct Mesh {
-
+    size_t meshHandle;
 };

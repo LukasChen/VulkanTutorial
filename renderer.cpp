@@ -20,9 +20,8 @@ Renderer::~Renderer() {
 	cleanup();
 }
 
-void Renderer::createMeshEntity(Entity entity, size_t meshHandle) {
-	m_entityToMesh[entity] = meshHandle;
-	createUniformDescriptors(entity);
+void Renderer::createMeshEntity(Entity entity) {
+	(void)entity;
 }
 
 size_t Renderer::uploadMesh(const std::pair<std::vector<Vertex>, std::vector<uint16_t>>& meshData) {
@@ -51,7 +50,7 @@ size_t Renderer::uploadMesh(const std::pair<std::vector<Vertex>, std::vector<uin
 	return m_meshResources.size() - 1;
 }
 
-void Renderer::createUniformDescriptors(Entity entity) {
+void Renderer::createFrameDescriptors() {
 	std::vector<vk::DescriptorSetLayout> layouts(MAX_FRAMES_IN_FLIGHT, *m_descriptorSetLayout);
 	vk::DescriptorSetAllocateInfo allocInfo{
 		.descriptorPool = m_descriptorPool,
@@ -61,26 +60,25 @@ void Renderer::createUniformDescriptors(Entity entity) {
 	auto descriptorSets = m_device.allocateDescriptorSets(allocInfo);
 
 	for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
-		const vk::DeviceSize bufferSize = sizeof(UniformBufferObject);
+		const vk::DeviceSize bufferSize = sizeof(FrameUniformBufferObject);
 		auto [buffer, bufferMem] = createBuffer(
 			bufferSize,
 			vk::BufferUsageFlagBits::eUniformBuffer,
 			vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent
 		);
 		auto& frame = m_frames[i];
-		frame.entityResources[entity].uniformBuffer = std::move(buffer);
-		frame.entityResources[entity].uniformBufferMemory = std::move(bufferMem);
-		frame.entityResources[entity].uniformBufferMapped =
-			frame.entityResources[entity].uniformBufferMemory.mapMemory(0, bufferSize);
+		frame.resources.uniformBuffer = std::move(buffer);
+		frame.resources.uniformBufferMemory = std::move(bufferMem);
+		frame.resources.uniformBufferMapped = frame.resources.uniformBufferMemory.mapMemory(0, bufferSize);
 
-		frame.entityResources[entity].descriptorSet = std::move(descriptorSets[i]);
+		frame.resources.descriptorSet = std::move(descriptorSets[i]);
 		vk::DescriptorBufferInfo bufferInfo{
-			.buffer = frame.entityResources[entity].uniformBuffer,
+			.buffer = frame.resources.uniformBuffer,
 			.offset = 0,
-			.range = sizeof(UniformBufferObject)
+			.range = sizeof(FrameUniformBufferObject)
 		};
 		vk::WriteDescriptorSet descriptorWrite{
-			.dstSet = frame.entityResources[entity].descriptorSet,
+			.dstSet = frame.resources.descriptorSet,
 			.dstBinding = 0,
 			.descriptorCount = 1,
 			.descriptorType = vk::DescriptorType::eUniformBuffer,
@@ -90,7 +88,7 @@ void Renderer::createUniformDescriptors(Entity entity) {
 	}
 }
 
-void Renderer::updateUniformBuffers() {
+void Renderer::updateFrameResources() {
 	static auto startTime = std::chrono::high_resolution_clock::now();
 	const auto currentTime = std::chrono::high_resolution_clock::now();
 	const float time =
@@ -102,28 +100,83 @@ void Renderer::updateUniformBuffers() {
 	viewMat = glm::rotate(viewMat, cameraTransform.rotation.y, glm::vec3(0, 1, 0));
 	viewMat = glm::rotate(viewMat, cameraTransform.rotation.z, glm::vec3(0, 0, 1));
 
+	glm::mat4 proj = glm::perspective(
+		glm::radians(45.0f),
+		m_swapChainExtent.width / static_cast<float>(m_swapChainExtent.height),
+		0.1f,
+		10.0f
+	);
+	proj[1][1] *= -1;
+
+	auto& frameResources = currentFrame().resources;
+	const FrameUniformBufferObject ubo{proj * viewMat};
+	memcpy(frameResources.uniformBufferMapped, &ubo, sizeof(ubo));
+
+	std::unordered_map<size_t, uint32_t> meshToBatchIndex;
+	frameResources.instanceBatches.clear();
+	std::vector<std::vector<InstanceData>> instancesByBatch;
+
 	auto view = m_registry.view<Transform, Mesh>();
 	for (auto it = view.begin(); it != view.end(); ++it) {
-		const Entity entity = it.entity();
 		auto [transform, mesh] = *it;
-		(void)mesh;
-		auto& entityResources = currentFrame().entityResources[entity];
 
 		glm::mat4 model = glm::translate(glm::mat4(1.0f), transform.position);
 		model = glm::rotate(model, time * glm::radians(90.0f), glm::vec3(0.0f, 1.0f, 0.0f));
 
-		glm::mat4 proj = glm::perspective(
-			glm::radians(45.0f),
-			m_swapChainExtent.width / static_cast<float>(m_swapChainExtent.height),
-			0.1f,
-			10.0f
-		);
-		proj[1][1] *= -1;
-
 		const glm::mat3 normalMatrix = glm::transpose(glm::inverse(glm::mat3(model)));
-		const UniformBufferObject ubo{model, proj * viewMat, normalMatrix};
-		memcpy(entityResources.uniformBufferMapped, &ubo, sizeof(ubo));
+		const auto batchIt = meshToBatchIndex.find(mesh.meshHandle);
+		if (batchIt == meshToBatchIndex.end()) {
+			const uint32_t batchIndex = static_cast<uint32_t>(frameResources.instanceBatches.size());
+			meshToBatchIndex.emplace(mesh.meshHandle, batchIndex);
+			frameResources.instanceBatches.push_back({
+				.meshHandle = mesh.meshHandle,
+				.firstInstance = 0,
+				.instanceCount = 0
+			});
+			instancesByBatch.emplace_back();
+			instancesByBatch[batchIndex].push_back({model, normalMatrix});
+		} else {
+			instancesByBatch[batchIt->second].push_back({model, normalMatrix});
+		}
 	}
+
+	size_t instanceCount = 0;
+	for (uint32_t batchIndex = 0; batchIndex < frameResources.instanceBatches.size(); batchIndex++) {
+		auto& batch = frameResources.instanceBatches[batchIndex];
+		batch.firstInstance = static_cast<uint32_t>(instanceCount);
+		batch.instanceCount = static_cast<uint32_t>(instancesByBatch[batchIndex].size());
+		instanceCount += instancesByBatch[batchIndex].size();
+	}
+
+	if (instanceCount == 0) {
+		return;
+	}
+
+	if (frameResources.instanceCapacity < instanceCount) {
+		if (frameResources.instanceBufferMemory != nullptr && frameResources.instanceBufferMapped != nullptr) {
+			frameResources.instanceBufferMemory.unmapMemory();
+			frameResources.instanceBufferMapped = nullptr;
+		}
+
+		auto [buffer, bufferMem] = createBuffer(
+			sizeof(InstanceData) * instanceCount,
+			vk::BufferUsageFlagBits::eVertexBuffer,
+			vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent
+		);
+		frameResources.instanceBuffer = std::move(buffer);
+		frameResources.instanceBufferMemory = std::move(bufferMem);
+		frameResources.instanceBufferMapped = frameResources.instanceBufferMemory.mapMemory(0, sizeof(InstanceData) * instanceCount);
+		frameResources.instanceCapacity = instanceCount;
+	}
+
+	std::vector<InstanceData> instances;
+	instances.reserve(instanceCount);
+	for (const auto& batchInstances : instancesByBatch) {
+		instances.insert(instances.end(), batchInstances.begin(), batchInstances.end());
+	}
+
+	const vk::DeviceSize instanceBufferSize = sizeof(InstanceData) * instances.size();
+	memcpy(frameResources.instanceBufferMapped, instances.data(), static_cast<size_t>(instanceBufferSize));
 }
 
 void Renderer::drawFrame() {
@@ -155,7 +208,7 @@ void Renderer::drawFrame() {
 
 	m_device.resetFences(*frame.inFlightFence);
 	frame.commandBuffer.reset();
-	updateUniformBuffers();
+	updateFrameResources();
 	recordCommandBuffer(imageIndex);
 
 	vk::PipelineStageFlags waitDestinationStageMask(vk::PipelineStageFlagBits::eColorAttachmentOutput);
@@ -225,6 +278,7 @@ void Renderer::initVulkan() {
 	createCommandPool();
 	createFrameResources();
 	createDescriptorPool();
+	createFrameDescriptors();
 	createCommandBuffer();
 	createSyncObjects();
 }
@@ -482,12 +536,20 @@ void Renderer::createGraphicsPipeline() {
 	};
 
 	std::array<vk::PipelineShaderStageCreateInfo, 2> shaderStages = {vertShaderStageInfo, fragShaderStageInfo};
-	auto bindingDescription = Vertex::getBindingDescription();
-	auto attributeDescriptions = Vertex::getAttributeDescriptions();
+	std::array bindingDescriptions = {
+		Vertex::getBindingDescription(),
+		InstanceData::getBindingDescription()
+	};
+	const auto vertexAttributeDescriptions = Vertex::getAttributeDescriptions();
+	const auto instanceAttributeDescriptions = InstanceData::getAttributeDescriptions();
+	std::array<vk::VertexInputAttributeDescription, vertexAttributeDescriptions.size() + instanceAttributeDescriptions.size()>
+		attributeDescriptions{};
+	std::ranges::copy(vertexAttributeDescriptions, attributeDescriptions.begin());
+	std::ranges::copy(instanceAttributeDescriptions, attributeDescriptions.begin() + vertexAttributeDescriptions.size());
 
 	vk::PipelineVertexInputStateCreateInfo vertexInputInfo{
-		.vertexBindingDescriptionCount = 1,
-		.pVertexBindingDescriptions = &bindingDescription,
+		.vertexBindingDescriptionCount = static_cast<uint32_t>(bindingDescriptions.size()),
+		.pVertexBindingDescriptions = bindingDescriptions.data(),
 		.vertexAttributeDescriptionCount = static_cast<uint32_t>(attributeDescriptions.size()),
 		.pVertexAttributeDescriptions = attributeDescriptions.data(),
 	};
@@ -633,7 +695,7 @@ std::pair<vk::raii::Buffer, vk::raii::DeviceMemory> Renderer::createMeshBuffer(
 void Renderer::createDescriptorPool() {
 	vk::DescriptorPoolSize poolSize{
 		.type = vk::DescriptorType::eUniformBuffer,
-		.descriptorCount = MAX_FRAMES_IN_FLIGHT
+		.descriptorCount = MAX_ENTITY_COUNT
 	};
 
 	vk::DescriptorPoolCreateInfo poolInfo{
@@ -781,20 +843,22 @@ void Renderer::recordCommandBuffer(uint32_t imageIndex) {
 	);
 	commandBuffer.setScissor(0, vk::Rect2D({0, 0}, m_swapChainExtent));
 
-	auto view = m_registry.view<Transform, Mesh>();
-	for (auto it = view.begin(); it != view.end(); ++it) {
-		const Entity entity = it.entity();
-		const auto& meshResource = m_meshResources[m_entityToMesh[entity]];
-		commandBuffer.bindVertexBuffers(0, *meshResource.vertexBuffer, {0});
+	const auto& frameResources = currentFrame().resources;
+	commandBuffer.bindDescriptorSets(
+		vk::PipelineBindPoint::eGraphics,
+		m_pipelineLayout,
+		0,
+		*frameResources.descriptorSet,
+		nullptr
+	);
+
+	for (const auto& batch : frameResources.instanceBatches) {
+		const auto& meshResource = m_meshResources[batch.meshHandle];
+		std::array vertexBuffers = {*meshResource.vertexBuffer, *frameResources.instanceBuffer};
+		std::array<vk::DeviceSize, 2> offsets = {0, 0};
+		commandBuffer.bindVertexBuffers(0, vertexBuffers, offsets);
 		commandBuffer.bindIndexBuffer(*meshResource.indexBuffer, 0, vk::IndexType::eUint16);
-		commandBuffer.bindDescriptorSets(
-			vk::PipelineBindPoint::eGraphics,
-			m_pipelineLayout,
-			0,
-			*currentFrame().entityResources[entity].descriptorSet,
-			nullptr
-		);
-		commandBuffer.drawIndexed(meshResource.indiceSize, 1, 0, 0, 0);
+		commandBuffer.drawIndexed(meshResource.indiceSize, batch.instanceCount, 0, 0, batch.firstInstance);
 	}
 
 	commandBuffer.endRendering();

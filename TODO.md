@@ -23,6 +23,7 @@
 - [x] Add camera
 - [x] Refactor rendering code out of the monolithic engine class.
 - [ ] Add instanced rendering.
+- [ ] Add render Pass
 - [ ] Create abstractions for render passes, pipelines, buffers, and materials.
 - [ ] Add mesh, texture, and shader asset management.
 - [ ] Support multiple cameras and viewport rendering.
