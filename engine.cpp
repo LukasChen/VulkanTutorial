@@ -1,14 +1,17 @@
 #include "engine.h"
 
 #include "components/components_common.h"
+#include "game/systems/cameraSystem.h"
 
 Engine::Engine(Registry& registry)
 	: m_window(createWindow()),
 	  m_glfwInitialized(true),
 	  m_registry(registry),
+	  m_input(m_window),
 	  m_camera(addCamera()),
 	  m_renderer(m_window, m_registry, m_camera) {
 	initWindow();
+	BindSystem<CameraSystem>();
 }
 
 Engine::~Engine() {
@@ -41,6 +44,11 @@ void Engine::framebufferResizeCallback(GLFWwindow* window, int, int) {
 void Engine::mainLoop() {
 	while (!glfwWindowShouldClose(m_window)) {
 		glfwPollEvents();
+
+		for (auto& system : m_systems) {
+			system->doUpdate(m_registry, 0.006f);
+		}
+
 		m_renderer.drawFrame();
 	}
 }
@@ -48,8 +56,11 @@ void Engine::mainLoop() {
 Entity Engine::addCamera() {
 	const Entity camera = m_registry.create();
 	m_registry.get<Transform>().addComponent(camera, Transform{
-		glm::vec3(0.0f, 0.0f, -2.0f),
-		glm::vec3(glm::radians(30.0f), 0.0f, 0.0f)
+		glm::vec3(0.0f, 1.0f, -1.0f),
+		glm::vec3(0.0f, 0.0f, 0.0f)
+	});
+	m_registry.get<Camera>().addComponent(camera, Camera{
+		0.1f
 	});
 	return camera;
 }

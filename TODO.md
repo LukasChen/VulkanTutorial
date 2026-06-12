@@ -1,3 +1,7 @@
+# Milestones
+- [ ] Instanced Forest Scene
+- [ ] Rigged Animation
+
 # Engine Project TODO
 
 ## Foundation
@@ -13,6 +17,7 @@
 
 - [ ] Implement a scene system with entities, components, and serialization.
 - [x] Build an ECS architecture with clear ownership and update ordering.
+- [ ] Add user input
 - [ ] Add a transform hierarchy for parent-child scene relationships.
 - [ ] Implement a game loop with fixed timestep simulation support.
 - [ ] Add an event or messaging system for engine subsystems.
@@ -22,8 +27,9 @@
 
 - [x] Add camera
 - [x] Refactor rendering code out of the monolithic engine class.
-- [ ] Add instanced rendering.
-- [ ] Add render Pass
+- [x] Add instanced rendering.
+- [ ] Add transparent render pass
+- [ ] Add front-to-back sorting
 - [ ] Create abstractions for render passes, pipelines, buffers, and materials.
 - [ ] Add mesh, texture, and shader asset management.
 - [ ] Support multiple cameras and viewport rendering.

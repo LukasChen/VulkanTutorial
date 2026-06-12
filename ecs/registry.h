@@ -64,6 +64,11 @@ public:
     }
 
     template<typename T>
+    T& get(Entity entity) {
+        return get<T>().get(entity);
+    }
+
+    template<typename T>
     ComponentList<T>& get(std::type_index typeIdx) {
         if (componentArrays.find(typeIdx) == componentArrays.end()) {
             componentArrays[typeIdx] = std::make_unique<ComponentList<T>>();

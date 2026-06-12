@@ -11,3 +11,7 @@ struct Transform {
 struct Mesh {
     size_t meshHandle;
 };
+
+struct Camera {
+    float speed;
+};

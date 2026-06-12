@@ -127,11 +127,13 @@ void Renderer::updateFrameResources() {
 	const float time =
 		std::chrono::duration<float, std::chrono::seconds::period>(currentTime - startTime).count();
 
-	const Transform& cameraTransform = m_registry.get<Transform>().get(m_camera);
+	const Transform& cameraTransform = m_registry.get<Transform>(m_camera);
 	glm::mat4 viewMat = glm::translate(glm::mat4(1.0f), cameraTransform.position);
 	viewMat = glm::rotate(viewMat, cameraTransform.rotation.x, glm::vec3(1, 0, 0));
 	viewMat = glm::rotate(viewMat, cameraTransform.rotation.y, glm::vec3(0, 1, 0));
 	viewMat = glm::rotate(viewMat, cameraTransform.rotation.z, glm::vec3(0, 0, 1));
+
+	viewMat = glm::inverse(viewMat);
 
 	glm::mat4 proj = glm::perspective(
 		glm::radians(45.0f),
@@ -156,7 +158,7 @@ void Renderer::updateFrameResources() {
 		}
 
 		auto [buffer, bufferMem] = createBuffer(
-			sizeof(InstanceData) * m_instanceCount,
+			sizeof(InstanceData) * m_instanceCount * 2,
 			vk::BufferUsageFlagBits::eVertexBuffer,
 			vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent
 		);
@@ -168,7 +170,7 @@ void Renderer::updateFrameResources() {
 
 	std::vector<uint32_t> instanceWriteOffsets(m_instanceBatches.size(), 0);
 
-	auto* instances = static_cast<InstanceData*>(frameResources.instanceBufferMapped);
+	InstanceData* instances = static_cast<InstanceData*>(frameResources.instanceBufferMapped);
 	auto view = m_registry.view<Transform, Mesh>();
 	for (auto it = view.begin(); it != view.end(); ++it) {
 		auto [transform, mesh] = *it;
@@ -180,7 +182,8 @@ void Renderer::updateFrameResources() {
 
 		const uint32_t batchIndex = batchIt->second;
 		InstanceBatch& batch = m_instanceBatches[batchIndex];
-		const uint32_t batchWriteIndex = instanceWriteOffsets[batchIndex]++;
+		const uint32_t batchWriteIndex = instanceWriteOffsets[batchIndex];
+		instanceWriteOffsets[batchIndex]++;
 		if (batchWriteIndex >= batch.instanceCount) {
 			continue;
 		}

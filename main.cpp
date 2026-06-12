@@ -10,6 +10,9 @@
 #include "model.h"
 #include "components/components_common.h"
 
+#include "game/components/common.h"
+#include "game/systems/sinAnimSystem.h"
+
 std::pair<std::vector<Vertex>, std::vector<uint16_t>> loadModel(const char* path) {
 	Model model(path);
 	std::vector<Vertex> modelVertices;
@@ -50,7 +53,8 @@ Entity addMeshEntity(Registry& reg, Renderer* renderer, size_t meshHandle) {
 void addDonuts(Registry& reg, Renderer* renderer, size_t meshHandle) {
 	for (int i = 0; i < 10; i++) {
 		Entity donut = addMeshEntity(reg, renderer, meshHandle);
-		reg.get<Transform>().get(donut).position = glm::vec3{0.0f, -(static_cast<float>(i) * 0.1f), -i};
+		reg.get<Transform>(donut).position = glm::vec3{0.0f, 1.5f, i};
+		// reg.get<SinComponent>().addComponent(donut, SinComponent{1.0f, 1.0f});
 	}
 }
 
@@ -63,7 +67,7 @@ void loadScene(Registry& reg, Engine& engine) {
 	auto boxMeshData = loadModel("box.obj");
 	size_t boxMeshHandle = renderer->uploadMesh(boxMeshData);
 	Entity box = addMeshEntity(reg, renderer, boxMeshHandle);
-	reg.get<Transform>().get(box).position = glm::vec3{1.0f, 0.0f, 0.0f};
+	reg.get<Transform>(box).position = glm::vec3(0.0f, 0.0f, 2.0f);
 
 	auto donutMeshData = loadModel("donut.obj");
 	size_t donutMeshHandle = renderer->uploadMesh(donutMeshData);
@@ -78,6 +82,7 @@ int main() {
 		Engine app(reg);
 
 		loadScene(reg, app);
+		app.BindSystem<SinAnimSystem>();
 
 		app.run();
 	} catch (const std::exception& e) {
