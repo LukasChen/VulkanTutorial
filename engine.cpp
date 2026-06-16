@@ -60,7 +60,8 @@ Entity Engine::addCamera() {
 		glm::vec3(0.0f, 0.0f, 0.0f)
 	});
 	m_registry.get<Camera>().addComponent(camera, Camera{
-		0.1f
+		0.1f,
+		0.05f
 	});
 	return camera;
 }

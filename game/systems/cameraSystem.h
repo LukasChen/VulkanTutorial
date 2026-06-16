@@ -15,7 +15,10 @@ public:
 
     void update(View<Camera, Transform>& view, float dt) override {
         for (auto [camera, transform] : view) {
-            transform.position += glm::vec3(1.0f, 0.0f, 0.0f) * m_engine.getInput()->getAxis(Axis::Horizontal) * camera.speed * dt;
+            transform.position += transform.right() * m_engine.getInput()->getAxis(Axis::Horizontal) * camera.speed * dt;
+            transform.position += transform.forward() * m_engine.getInput()->getAxis(Axis::Vertical) * camera.speed * dt;
+
+            transform.rotation.y += m_engine.getInput()->getAxis(Axis::LookHorizontal) * camera.sensitivity * dt;
         }
     }
 };

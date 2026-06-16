@@ -17,7 +17,7 @@
 
 - [ ] Implement a scene system with entities, components, and serialization.
 - [x] Build an ECS architecture with clear ownership and update ordering.
-- [ ] Add user input
+- [x] Add user input
 - [ ] Add a transform hierarchy for parent-child scene relationships.
 - [ ] Implement a game loop with fixed timestep simulation support.
 - [ ] Add an event or messaging system for engine subsystems.

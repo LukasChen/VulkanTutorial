@@ -1,4 +1,4 @@
-static float3 lightDir = float3(0.0, 1.0, 1.0);
+static float3 lightDir = float3(0.0, 1.0, -1.0);
 
 struct UniformBuffer {
     float4x4 viewProjectionMatrix;

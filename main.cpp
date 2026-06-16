@@ -69,9 +69,12 @@ void loadScene(Registry& reg, Engine& engine) {
 	Entity box = addMeshEntity(reg, renderer, boxMeshHandle);
 	reg.get<Transform>(box).position = glm::vec3(0.0f, 0.0f, 2.0f);
 
+	Entity box2 = addMeshEntity(reg, renderer, boxMeshHandle);
+	reg.get<Transform>(box2).position = glm::vec3(1.0f, 0.0f, 2.0f);
+
 	auto donutMeshData = loadModel("donut.obj");
 	size_t donutMeshHandle = renderer->uploadMesh(donutMeshData);
-	addDonuts(reg, renderer, donutMeshHandle);
+	// addDonuts(reg, renderer, donutMeshHandle);
 }
 
 int main() {

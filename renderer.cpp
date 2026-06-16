@@ -135,7 +135,7 @@ void Renderer::updateFrameResources() {
 
 	viewMat = glm::inverse(viewMat);
 
-	glm::mat4 proj = glm::perspective(
+	glm::mat4 proj = glm::perspectiveLH_ZO(
 		glm::radians(45.0f),
 		m_swapChainExtent.width / static_cast<float>(m_swapChainExtent.height),
 		0.1f,
@@ -579,7 +579,7 @@ void Renderer::createGraphicsPipeline() {
 		.rasterizerDiscardEnable = vk::False,
 		.polygonMode = vk::PolygonMode::eFill,
 		.cullMode = vk::CullModeFlagBits::eBack,
-		.frontFace = vk::FrontFace::eCounterClockwise,
+		.frontFace = vk::FrontFace::eClockwise,
 		.depthBiasEnable = vk::False,
 		.lineWidth = 1.0f
 	};
