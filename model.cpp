@@ -2,6 +2,7 @@
 #include <iostream>
 #include <fstream>
 #include <sstream>
+#include <map>
 
 Model::Model(const std::string& filename) {
 
@@ -13,6 +14,11 @@ Model::Model(const std::string& filename) {
     std::cout << "Parsing model data...\n";
 
     std::string line;
+
+    std::vector<glm::vec3> verts;
+    std::vector<std::array<std::array<int, 3>, 2>> faces;
+    std::vector<glm::vec3> normals;
+
     while (std::getline(in, line)) {
         std::istringstream iss(line);
         std::string prefix;
@@ -21,7 +27,7 @@ Model::Model(const std::string& filename) {
         if (prefix == "v") {
             glm::vec3 v = {0, 0, 0};
             if (iss >> v.x >> v.y >> v.z) {
-                m_Verts.push_back(v);
+                verts.push_back(v);
             }
         } else if (prefix == "f") {
             std::array<int, 3> face = {0, 0, 0};
@@ -38,40 +44,35 @@ Model::Model(const std::string& filename) {
                 normal[i] = std::stoi(token.substr(pos2 + 1)) - 1;
                 i++;
             }
-            if (i == 3) m_Faces.push_back({face, normal});
+            if (i == 3) faces.push_back({face, normal});
         } else if (prefix == "vn") {
             glm::vec3 n = {0, 0, 0};
             if (iss >> n.x >> n.y >> n.z) {
-                m_Normals.push_back(n);
+                normals.push_back(n);
             }
         }
     }
-    std::cout << "Loaded " << m_Verts.size() << " verts, " << m_Faces.size() << " faces, and " << m_Normals.size() << " normals.\n";
+
+    indices.reserve(faces.size() * 3);
+    vertices.reserve(faces.size() * 3);
+
+	std::map<std::pair<int, int>, uint16_t> uniqueVertices;
+    for (int i = 0; i < faces.size(); i++) {
+		for (int j = 0; j < 3; j++) {
+			int vertIndex = faces[i][0][j];
+			int normalIndex = faces[i][1][j];
+			auto key = std::make_pair(vertIndex, normalIndex);
+			auto it = uniqueVertices.find(key);
+			if (it == uniqueVertices.end()) {
+				uint16_t newIndex = static_cast<uint16_t>(vertices.size());
+				vertices.emplace_back(verts[vertIndex], normals[normalIndex], glm::vec3{0.5f, 0.5f, 0.5f});
+				it = uniqueVertices.emplace(key, newIndex).first;
+			}
+
+			indices.push_back(it->second);
+		}
+	}
+    std::cout << "Loaded " << vertices.size() << " verts, " << indices.size() << " indices.\n";
 }
 
-int Model::nverts() const { return (int)m_Verts.size(); }
-int Model::nfaces() const { return (int)m_Faces.size(); }
-
-glm::vec3 Model::vert(int i) const {
-    return m_Verts[i];
-}
-
-glm::vec3 Model::vert(int iface, int nthvert) const {
-    return m_Verts[m_Faces[iface][0][nthvert]];
-}
-
-int Model::vertIndex(int iface, int nthvert) const {
-    return m_Faces[iface][0][nthvert];
-}
-
-glm::vec3 Model::normal(int i) const {
-    return m_Normals[i];
-}
-
-glm::vec3 Model::normal(int iface, int nthvert) const {
-    return m_Normals[m_Faces[iface][1][nthvert]];
-}
-
-int Model::normalIndex(int iface, int nthvert) const {
-    return m_Faces[iface][1][nthvert];
-}
+Model::Model(std::vector<Vertex>&& verticies, std::vector<uint16_t>&& indicies) : vertices(std::move(verticies)), indices(std::move(indicies)){}

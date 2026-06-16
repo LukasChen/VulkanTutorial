@@ -46,18 +46,18 @@ void Renderer::createMeshEntity(Entity entity) {
 	}
 }
 
-size_t Renderer::uploadMesh(const std::pair<std::vector<Vertex>, std::vector<uint16_t>>& meshData) {
-	const vk::DeviceSize vertexBufferSize = meshData.first.size() * sizeof(Vertex);
+size_t Renderer::uploadMesh(const Model& meshData) {
+	const vk::DeviceSize vertexBufferSize = meshData.vertices.size() * sizeof(Vertex);
 	auto [vertexBuffer, vertexBufferMemory] = createMeshBuffer(
 		vertexBufferSize,
-		meshData.first.data(),
+		meshData.vertices.data(),
 		vk::BufferUsageFlagBits::eVertexBuffer
 	);
 
-	const vk::DeviceSize indexBufferSize = meshData.second.size() * sizeof(uint16_t);
+	const vk::DeviceSize indexBufferSize = meshData.indices.size() * sizeof(uint16_t);
 	auto [indexBuffer, indexBufferMemory] = createMeshBuffer(
 		indexBufferSize,
-		meshData.second.data(),
+		meshData.indices.data(),
 		vk::BufferUsageFlagBits::eIndexBuffer
 	);
 
@@ -66,7 +66,7 @@ size_t Renderer::uploadMesh(const std::pair<std::vector<Vertex>, std::vector<uin
 		std::move(vertexBufferMemory),
 		std::move(indexBuffer),
 		std::move(indexBufferMemory),
-		static_cast<uint16_t>(meshData.second.size())
+		static_cast<uint16_t>(meshData.indices.size())
 	);
 
 	return m_meshResources.size() - 1;
@@ -129,8 +129,8 @@ void Renderer::updateFrameResources() {
 
 	const Transform& cameraTransform = m_registry.get<Transform>(m_camera);
 	glm::mat4 viewMat = glm::translate(glm::mat4(1.0f), cameraTransform.position);
-	viewMat = glm::rotate(viewMat, cameraTransform.rotation.x, glm::vec3(1, 0, 0));
 	viewMat = glm::rotate(viewMat, cameraTransform.rotation.y, glm::vec3(0, 1, 0));
+	viewMat = glm::rotate(viewMat, cameraTransform.rotation.x, glm::vec3(1, 0, 0));
 	viewMat = glm::rotate(viewMat, cameraTransform.rotation.z, glm::vec3(0, 0, 1));
 
 	viewMat = glm::inverse(viewMat);
@@ -190,7 +190,7 @@ void Renderer::updateFrameResources() {
 
 		const uint32_t instanceIndex = batch.firstInstance + batchWriteIndex;
 		glm::mat4 model = glm::translate(glm::mat4(1.0f), transform.position);
-		model = glm::rotate(model, time * glm::radians(90.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+		model = glm::scale(model, transform.scale);
 
 		const glm::mat3 normalMatrix = glm::transpose(glm::inverse(glm::mat3(model)));
 		instances[instanceIndex] = {model, normalMatrix};

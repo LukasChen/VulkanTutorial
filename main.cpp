@@ -8,38 +8,11 @@
 
 #include "engine.h"
 #include "model.h"
+#include "primitive.h"
 #include "components/components_common.h"
 
 #include "game/components/common.h"
 #include "game/systems/sinAnimSystem.h"
-
-std::pair<std::vector<Vertex>, std::vector<uint16_t>> loadModel(const char* path) {
-	Model model(path);
-	std::vector<Vertex> modelVertices;
-	std::vector<uint16_t> modelIndices;
-	modelVertices.reserve(model.nfaces() * 3);
-	modelIndices.reserve(model.nfaces() * 3);
-
-	std::map<std::pair<int, int>, uint16_t> uniqueVertices;
-	for (int i = 0; i < model.nfaces(); i++) {
-		for (int j = 0; j < 3; j++) {
-			int vertIndex = model.vertIndex(i, j);
-			int normalIndex = model.normalIndex(i, j);
-			auto key = std::make_pair(vertIndex, normalIndex);
-			auto it = uniqueVertices.find(key);
-
-			if (it == uniqueVertices.end()) {
-				uint16_t newIndex = static_cast<uint16_t>(modelVertices.size());
-				modelVertices.emplace_back(model.vert(i, j), model.normal(i, j), glm::vec3{0.5f, 0.5f, 0.5f});
-				it = uniqueVertices.emplace(key, newIndex).first;
-			}
-
-			modelIndices.push_back(it->second);
-		}
-	}
-
-	return {std::move(modelVertices), std::move(modelIndices)};
-}
 
 Entity addMeshEntity(Registry& reg, Renderer* renderer, size_t meshHandle) {
 	Entity entity = reg.create();
@@ -64,17 +37,18 @@ void loadScene(Registry& reg, Engine& engine) {
 	// reg.get<Transform>().get(donut).position = glm::vec3{0.0f, 0.0f, 0.0f};
 	Renderer* renderer = engine.getRenderer();
 
-	auto boxMeshData = loadModel("box.obj");
+	Model boxMeshData("box.obj");
 	size_t boxMeshHandle = renderer->uploadMesh(boxMeshData);
 	Entity box = addMeshEntity(reg, renderer, boxMeshHandle);
-	reg.get<Transform>(box).position = glm::vec3(0.0f, 0.0f, 2.0f);
+	reg.get<Transform>(box).position = glm::vec3(0.0f, 0.0f, 0.0f);
 
 	Entity box2 = addMeshEntity(reg, renderer, boxMeshHandle);
-	reg.get<Transform>(box2).position = glm::vec3(1.0f, 0.0f, 2.0f);
+	reg.get<Transform>(box2).position = glm::vec3(2.0f, 0.0f, 0.0f);
 
-	auto donutMeshData = loadModel("donut.obj");
-	size_t donutMeshHandle = renderer->uploadMesh(donutMeshData);
-	// addDonuts(reg, renderer, donutMeshHandle);
+	size_t planeMeshHandle = renderer->uploadMesh(Primitive::createPlane());
+	Entity plane = addMeshEntity(reg, renderer, planeMeshHandle);
+	reg.get<Transform>(plane).position = glm::vec3(0.0f, -0.5f, 0.0f);
+	reg.get<Transform>(plane).scale = glm::vec3(10.0f, 1.0f, 10.0f);
 }
 
 int main() {

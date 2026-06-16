@@ -18,6 +18,7 @@ import vulkan_hpp;
 enum class Axis {
     Horizontal,
     Vertical,
+    Elevation,
     LookHorizontal,
     LookVertical
 };
