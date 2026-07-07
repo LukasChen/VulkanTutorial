@@ -8,6 +8,7 @@ struct VSInput {
     float3 inPos;
     float3 inNormal;
     float3 inColor;
+    float2 inTexCoord;
     float4 instanceModel0;
     float4 instanceModel1;
     float4 instanceModel2;
@@ -23,6 +24,7 @@ struct V2F {
     float4 pos : SV_POSITION;
     float3 normal;
     float3 color;
+    float2 texCoord;
 };
 
 [shader("vertex")]
@@ -44,6 +46,7 @@ V2F vertMain(VSInput input) {
     o.pos = mul(ubo.viewProjectionMatrix, mul(modelMatrix, float4(input.inPos, 1.0)));
     o.normal = mul(normalMatrix, input.inNormal);
     o.color = input.inColor;
+    o.texCoord = input.inTexCoord;
     return o;
 }
 

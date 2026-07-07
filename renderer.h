@@ -58,13 +58,13 @@ struct InstanceData {
 
 	static std::array<vk::VertexInputAttributeDescription, 7> getAttributeDescriptions() {
 		return {{
-			{.location = 3, .binding = 1, .format = vk::Format::eR32G32B32A32Sfloat, .offset = offsetof(InstanceData, model) + sizeof(glm::vec4) * 0},
-			{.location = 4, .binding = 1, .format = vk::Format::eR32G32B32A32Sfloat, .offset = offsetof(InstanceData, model) + sizeof(glm::vec4) * 1},
-			{.location = 5, .binding = 1, .format = vk::Format::eR32G32B32A32Sfloat, .offset = offsetof(InstanceData, model) + sizeof(glm::vec4) * 2},
-			{.location = 6, .binding = 1, .format = vk::Format::eR32G32B32A32Sfloat, .offset = offsetof(InstanceData, model) + sizeof(glm::vec4) * 3},
-			{.location = 7, .binding = 1, .format = vk::Format::eR32G32B32Sfloat, .offset = offsetof(InstanceData, normal) + sizeof(glm::vec3) * 0},
-			{.location = 8, .binding = 1, .format = vk::Format::eR32G32B32Sfloat, .offset = offsetof(InstanceData, normal) + sizeof(glm::vec3) * 1},
-			{.location = 9, .binding = 1, .format = vk::Format::eR32G32B32Sfloat, .offset = offsetof(InstanceData, normal) + sizeof(glm::vec3) * 2}
+			{.location = 4, .binding = 1, .format = vk::Format::eR32G32B32A32Sfloat, .offset = offsetof(InstanceData, model) + sizeof(glm::vec4) * 0},
+			{.location = 5, .binding = 1, .format = vk::Format::eR32G32B32A32Sfloat, .offset = offsetof(InstanceData, model) + sizeof(glm::vec4) * 1},
+			{.location = 6, .binding = 1, .format = vk::Format::eR32G32B32A32Sfloat, .offset = offsetof(InstanceData, model) + sizeof(glm::vec4) * 2},
+			{.location = 7, .binding = 1, .format = vk::Format::eR32G32B32A32Sfloat, .offset = offsetof(InstanceData, model) + sizeof(glm::vec4) * 3},
+			{.location = 8, .binding = 1, .format = vk::Format::eR32G32B32Sfloat, .offset = offsetof(InstanceData, normal) + sizeof(glm::vec3) * 0},
+			{.location = 9, .binding = 1, .format = vk::Format::eR32G32B32Sfloat, .offset = offsetof(InstanceData, normal) + sizeof(glm::vec3) * 1},
+			{.location = 10, .binding = 1, .format = vk::Format::eR32G32B32Sfloat, .offset = offsetof(InstanceData, normal) + sizeof(glm::vec3) * 2}
 		}};
 	}
 };
@@ -159,6 +159,12 @@ private:
 	std::unordered_map<size_t, uint32_t> m_meshToBatchIndex;
 	size_t m_instanceCount = 0;
 
+	vk::raii::Image m_textureImage = nullptr;
+	vk::raii::DeviceMemory m_textureImageMemory = nullptr;
+
+	vk::raii::ImageView m_textureImageView = nullptr;
+	vk::raii::Sampler m_textureSampler = nullptr;
+
 
 	bool hasDedicatedTransferQueueFamily() const;
 	vk::raii::Queue& transferQueue();
@@ -183,13 +189,16 @@ private:
 	void createSwapImageViews();
 	void createGraphicsPipeline();
 	void createCommandPool();
+	void createTextureImage();
+	void createTextureImageView();
+	void createTextureSampler();
 	void createDepthResources();
 	void createDescriptorPool();
 	void createFrameDescriptors();
 	void createCommandBuffer();
 	void createSyncObjects();
 	void recordCommandBuffer(uint32_t imageIndex);
-	void transitionImageLayout(
+	void transition_image_layout(
 		vk::Image image,
 		vk::ImageLayout oldLayout,
 		vk::ImageLayout newLayout,
@@ -199,6 +208,7 @@ private:
 		vk::PipelineStageFlags2 dstStageMask,
 		vk::ImageAspectFlags imageAspectFlags
 	);
+	void transitionImageLayout(vk::raii::CommandBuffer& commandBuffer, const vk::raii::Image& image, vk::ImageLayout oldLayout, vk::ImageLayout newLayout);
 
 	uint32_t findMemoryType(uint32_t typeFilter, vk::MemoryPropertyFlags properties);
 	uint32_t findQueueIndex(
@@ -219,12 +229,15 @@ private:
 		vk::BufferUsageFlagBits bufferType
 	);
 	void copyBuffer(vk::raii::Buffer& srcBuffer, vk::raii::Buffer& dstBuffer, vk::DeviceSize size);
+	void copyBufferToImage(vk::raii::CommandBuffer& commandBuffer, const vk::raii::Buffer& buffer, vk::raii::Image& image, uint32_t width, uint32_t height);
 	vk::SurfaceFormatKHR chooseSwapSurfaceFormat(std::vector<vk::SurfaceFormatKHR> const& availableFormats);
 	vk::Format findSupportedFormat(std::span<const vk::Format> candidates, vk::ImageTiling tiling, vk::FormatFeatureFlags features);
 	vk::Format findDepthFormat();
 	vk::PresentModeKHR chooseSwapPresentMode(std::vector<vk::PresentModeKHR> const& availablePresentModes);
 	vk::Extent2D chooseSwapExtent(vk::SurfaceCapabilitiesKHR const& capabilities);
 	uint32_t chooseSwapMinImageCount(vk::SurfaceCapabilitiesKHR const& surfaceCapabilities);
+	vk::raii::CommandBuffer beginSingleTimeCommands();
+	void endSingleTimeCommands(vk::raii::CommandBuffer&& commandBuffer);
 	std::vector<char> readFile(const std::string& filename);
 
 	void cleanupSwapChain();
