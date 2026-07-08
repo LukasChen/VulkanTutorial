@@ -4,6 +4,7 @@
 #include <chrono>
 #include <cstdint>
 #include <fstream>
+#include <functional>
 #include <limits>
 #include <span>
 #include <string>
@@ -24,6 +25,8 @@ import vulkan_hpp;
 #define GLFW_EXPOSE_NATIVE_WIN32
 #define NOMINMAX
 #include <GLFW/glfw3native.h>
+
+#include <stb_image.h>
 
 #include "model.h"
 #include "vertex_layout.h"
@@ -75,8 +78,24 @@ struct FrameUniformBufferObject {
 
 struct InstanceBatch {
 	size_t meshHandle;
+	size_t materialHandle;
 	uint32_t firstInstance;
 	uint32_t instanceCount;
+};
+
+struct InstanceBatchKey {
+	size_t meshHandle;
+	size_t materialHandle;
+
+	bool operator==(const InstanceBatchKey&) const = default;
+};
+
+struct InstanceBatchKeyHash {
+	size_t operator()(const InstanceBatchKey& key) const {
+		const size_t meshHash = std::hash<size_t>{}(key.meshHandle);
+		const size_t materialHash = std::hash<size_t>{}(key.materialHandle);
+		return meshHash ^ (materialHash + 0x9e3779b97f4a7c15ull + (meshHash << 6) + (meshHash >> 2));
+	}
 };
 
 struct FrameResources {
@@ -114,6 +133,14 @@ struct SwapchainData {
 	vk::raii::Semaphore renderFinishedSemaphore = nullptr;
 };
 
+struct MaterialResources {
+	vk::raii::Image image;
+	vk::raii::DeviceMemory imageMemory;
+	vk::raii::ImageView imageView;
+	vk::raii::Sampler sampler;
+	vk::raii::DescriptorSet descriptorSet;
+};
+
 class Renderer {
 public:
 	Renderer(GLFWwindow* window, Registry& registry, Entity camera);
@@ -122,6 +149,7 @@ public:
 	void createMeshEntity(Entity entity);
 	void rebuildInstanceBatches();
 	size_t uploadMesh(const Model& meshData);
+	size_t uploadTexture(const stbi_uc* pixels, int width, int height, int texChannels);
 	void drawFrame();
 	void onFramebufferResized();
 
@@ -146,6 +174,7 @@ private:
 	vk::raii::CommandPool m_commandPool = nullptr;
 	vk::raii::CommandPool m_transferCommandPool = nullptr;
 	vk::raii::DescriptorSetLayout m_descriptorSetLayout = nullptr;
+	vk::raii::DescriptorSetLayout m_materialDescriptorSetLayout = nullptr;
 	vk::raii::DescriptorPool m_descriptorPool = nullptr;
 	std::vector<FrameData> m_frames;
 	uint32_t m_frameIndex = 0;
@@ -155,8 +184,9 @@ private:
 	Registry& m_registry;
 	Entity m_camera;
 	std::vector<MeshResources> m_meshResources;
+	std::vector<MaterialResources> m_matResources;
 	std::vector<InstanceBatch> m_instanceBatches;
-	std::unordered_map<size_t, uint32_t> m_meshToBatchIndex;
+	std::unordered_map<InstanceBatchKey, uint32_t, InstanceBatchKeyHash> m_instanceBatchToIndex;
 	size_t m_instanceCount = 0;
 
 	vk::raii::Image m_textureImage = nullptr;
@@ -251,6 +281,7 @@ private:
 		vk::ImageUsageFlags usage,
 		vk::MemoryPropertyFlags properties
 	);
+	vk::raii::Sampler createImageSampler();
 	vk::raii::ImageView createImageView(const vk::Image& image, vk::Format format, vk::ImageAspectFlags aspectFlags);
 	vk::raii::ShaderModule createShaderModule(const std::vector<char>& code) const;
 	std::vector<const char*> getRequiredInstanceExtensions();

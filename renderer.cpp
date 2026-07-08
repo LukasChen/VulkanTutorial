@@ -7,8 +7,6 @@
 #include <tuple>
 #include <utility>
 
-#define STB_IMAGE_IMPLEMENTATION
-#include <stb_image.h>
 
 #include "components/components_common.h"
 
@@ -25,16 +23,23 @@ Renderer::~Renderer() {
 
 void Renderer::createMeshEntity(Entity entity) {
 	const Mesh* mesh = m_registry.get<Mesh>().tryGet(entity);
+	const Material* mat = m_registry.get<Material>().tryGet(entity);
 	if (mesh == nullptr) {
 		return;
 	}
 
-	auto batchIt = m_meshToBatchIndex.find(mesh->meshHandle);
-	if (batchIt == m_meshToBatchIndex.end()) {
+	size_t matHandle = mat ? mat->materialHandle : -1;
+	const InstanceBatchKey batchKey {
+		.meshHandle = mesh->meshHandle,
+		.materialHandle = matHandle
+	};
+	auto batchIt = m_instanceBatchToIndex.find(batchKey);
+	if (batchIt == m_instanceBatchToIndex.end()) {
 		const uint32_t batchIndex = static_cast<uint32_t>(m_instanceBatches.size());
-		batchIt = m_meshToBatchIndex.emplace(mesh->meshHandle, batchIndex).first;
+		batchIt = m_instanceBatchToIndex.emplace(batchKey, batchIndex).first;
 		m_instanceBatches.push_back({
 			.meshHandle = mesh->meshHandle,
+			.materialHandle = matHandle,
 			.firstInstance = static_cast<uint32_t>(m_instanceCount),
 			.instanceCount = 0
 		});
@@ -75,9 +80,71 @@ size_t Renderer::uploadMesh(const Model& meshData) {
 	return m_meshResources.size() - 1;
 }
 
+
+size_t Renderer::uploadTexture(const stbi_uc* pixels, int width, int height, int texChannels) {
+	vk::DeviceSize imageSize = width * height * 4;
+	auto [stagingBuffer, stagingBufferMemory] =
+		createBuffer(imageSize, vk::BufferUsageFlagBits::eTransferSrc, vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent);
+
+	void* data = stagingBufferMemory.mapMemory(0, imageSize);
+	memcpy(data, pixels, imageSize);
+	stagingBufferMemory.unmapMemory();
+
+	auto [textureImage, textureImageMemory] = createImage(width,
+		 height,
+		 vk::Format::eR8G8B8A8Unorm,
+		 vk::ImageTiling::eOptimal,
+		 vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eSampled,
+		 vk::MemoryPropertyFlagBits::eDeviceLocal);
+	vk::raii::CommandBuffer commandBuffer = beginSingleTimeCommands();
+	transitionImageLayout(commandBuffer, textureImage, vk::ImageLayout::eUndefined, vk::ImageLayout::eTransferDstOptimal);
+	copyBufferToImage(commandBuffer, stagingBuffer, textureImage, static_cast<uint32_t>(width), static_cast<uint32_t>(height));
+	transitionImageLayout(commandBuffer, textureImage, vk::ImageLayout::eTransferDstOptimal, vk::ImageLayout::eShaderReadOnlyOptimal);
+	endSingleTimeCommands(std::move(commandBuffer));
+
+	vk::raii::ImageView textureImageView = createImageView(*textureImage, vk::Format::eR8G8B8A8Unorm, vk::ImageAspectFlagBits::eColor);
+	vk::raii::Sampler textureSampler = createImageSampler();
+
+	vk::DescriptorSetAllocateInfo allocInfo {
+		.descriptorPool = m_descriptorPool,
+		.descriptorSetCount = 1,
+		.pSetLayouts = &*m_materialDescriptorSetLayout
+	};
+
+	auto descriptorSets = m_device.allocateDescriptorSets(allocInfo);
+
+	MaterialResources material {
+		std::move(textureImage),
+		std::move(textureImageMemory),
+		std::move(textureImageView),
+		std::move(textureSampler),
+		std::move(descriptorSets.front())
+	};
+
+	vk::DescriptorImageInfo imageInfo {
+		.sampler = material.sampler,
+		.imageView = material.imageView,
+		.imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal
+	};
+
+	vk::WriteDescriptorSet descriptorWrite {
+		.dstSet = material.descriptorSet,
+		.dstBinding = 0,
+		.dstArrayElement = 0,
+		.descriptorCount = 1,
+		.descriptorType = vk::DescriptorType::eCombinedImageSampler,
+		.pImageInfo = &imageInfo
+	};
+
+	m_device.updateDescriptorSets(descriptorWrite, {});
+
+	m_matResources.push_back(std::move(material));
+	return m_matResources.size() - 1;
+}
+
 void Renderer::rebuildInstanceBatches() {
 	m_instanceBatches.clear();
-	m_meshToBatchIndex.clear();
+	m_instanceBatchToIndex.clear();
 	m_instanceCount = 0;
 
 	auto view = m_registry.view<Transform, Mesh>();
@@ -113,13 +180,8 @@ void Renderer::createFrameDescriptors() {
 			.offset = 0,
 			.range = sizeof(FrameUniformBufferObject)
 		};
-		vk::DescriptorImageInfo imageInfo {
-			.sampler = m_textureSampler,
-			.imageView = m_textureImageView,
-			.imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal
-		};
 
-		std::array<vk::WriteDescriptorSet, 2> descriptorWrites {{
+		std::array<vk::WriteDescriptorSet, 1> descriptorWrites {{
 			{
 				.dstSet = frame.resources.descriptorSet,
 				.dstBinding = 0,
@@ -127,14 +189,6 @@ void Renderer::createFrameDescriptors() {
 				.descriptorCount = 1,
 				.descriptorType = vk::DescriptorType::eUniformBuffer,
 				.pBufferInfo = &bufferInfo,
-			},
-			{
-				.dstSet = frame.resources.descriptorSet,
-				.dstBinding = 1,
-				.dstArrayElement = 0,
-				.descriptorCount = 1,
-				.descriptorType = vk::DescriptorType::eCombinedImageSampler,
-				.pImageInfo = &imageInfo
 			}
 		}};
 		m_device.updateDescriptorSets(descriptorWrites, {});
@@ -159,7 +213,7 @@ void Renderer::updateFrameResources() {
 		glm::radians(45.0f),
 		m_swapChainExtent.width / static_cast<float>(m_swapChainExtent.height),
 		0.1f,
-		10.0f
+		100.0f
 	);
 	proj[1][1] *= -1;
 
@@ -194,9 +248,15 @@ void Renderer::updateFrameResources() {
 	auto view = m_registry.view<Transform, Mesh>();
 	for (auto it = view.begin(); it != view.end(); ++it) {
 		auto [transform, mesh] = *it;
+		const Material* mat = m_registry.get<Material>().tryGet(it.entity());
+		const size_t matHandle = mat ? mat->materialHandle : -1;
+		const InstanceBatchKey batchKey {
+			.meshHandle = mesh.meshHandle,
+			.materialHandle = matHandle
+		};
 
-		const auto batchIt = m_meshToBatchIndex.find(mesh.meshHandle);
-		if (batchIt == m_meshToBatchIndex.end()) {
+		const auto batchIt = m_instanceBatchToIndex.find(batchKey);
+		if (batchIt == m_instanceBatchToIndex.end()) {
 			continue;
 		}
 
@@ -314,9 +374,9 @@ void Renderer::initVulkan() {
 	createDescriptorSetLayout();
 	createGraphicsPipeline();
 	createCommandPool();
-	createTextureImage();
-	createTextureImageView();
-	createTextureSampler();
+	// createTextureImage();
+	// createTextureImageView();
+	// createTextureSampler();
 	createFrameResources();
 	createDescriptorPool();
 	createFrameDescriptors();
@@ -525,26 +585,32 @@ void Renderer::createSwapChain() {
 }
 
 void Renderer::createDescriptorSetLayout() {
-	std::array<vk::DescriptorSetLayoutBinding, 2> bindings {{
-		{
-			.binding = 0,
-			.descriptorType = vk::DescriptorType::eUniformBuffer,
-			.descriptorCount = 1,
-			.stageFlags = vk::ShaderStageFlagBits::eVertex
-		},
-		{
-			.binding = 1,
-			.descriptorType = vk::DescriptorType::eCombinedImageSampler,
-			.descriptorCount = 1,
-			.stageFlags = vk::ShaderStageFlagBits::eFragment
-		}
-	}};
+	vk::DescriptorSetLayoutBinding binding {
+		.binding = 0,
+		.descriptorType = vk::DescriptorType::eUniformBuffer,
+		.descriptorCount = 1,
+		.stageFlags = vk::ShaderStageFlagBits::eVertex
+	};
 
 	vk::DescriptorSetLayoutCreateInfo layoutInfo{
-		.bindingCount = bindings.size(),
-		.pBindings = bindings.data(),
+		.bindingCount = 1,
+		.pBindings = &binding,
 	};
 	m_descriptorSetLayout = m_device.createDescriptorSetLayout(layoutInfo);
+
+	vk::DescriptorSetLayoutBinding textureBinding {
+		.binding = 0,
+		.descriptorType = vk::DescriptorType::eCombinedImageSampler,
+		.descriptorCount = 1,
+		.stageFlags = vk::ShaderStageFlagBits::eFragment
+	};
+
+	vk::DescriptorSetLayoutCreateInfo textLayoutInfo {
+		.bindingCount = 1,
+		.pBindings = &textureBinding
+	};
+
+	m_materialDescriptorSetLayout = m_device.createDescriptorSetLayout(textLayoutInfo);
 }
 
 void Renderer::createSwapImageViews() {
@@ -640,9 +706,13 @@ void Renderer::createGraphicsPipeline() {
 		.pDynamicStates = dynamicStates.data()
 	};
 
+	std::array<vk::DescriptorSetLayout, 2> descriptorSetLayouts = {
+		*m_descriptorSetLayout, *m_materialDescriptorSetLayout
+	};
+
 	vk::PipelineLayoutCreateInfo pipelineLayoutInfo{
-		.setLayoutCount = 1,
-		.pSetLayouts = &*m_descriptorSetLayout
+		.setLayoutCount = descriptorSetLayouts.size(),
+		.pSetLayouts = descriptorSetLayouts.data()
 	};
 	m_pipelineLayout = vk::raii::PipelineLayout(m_device, pipelineLayoutInfo);
 
@@ -815,6 +885,25 @@ void Renderer::createTextureSampler() {
 	m_textureSampler = vk::raii::Sampler(m_device, samplerInfo);
 }
 
+
+vk::raii::Sampler Renderer::createImageSampler() {
+	vk::PhysicalDeviceProperties properties = m_physicalDevice.getProperties();
+	vk::SamplerCreateInfo samplerInfo {
+		.magFilter = vk::Filter::eLinear,
+		.minFilter = vk::Filter::eLinear,
+		.mipmapMode = vk::SamplerMipmapMode::eLinear,
+		.addressModeU = vk::SamplerAddressMode::eRepeat,
+		.addressModeV = vk::SamplerAddressMode::eRepeat,
+		.addressModeW = vk::SamplerAddressMode::eRepeat,
+		.mipLodBias = 0.0f,
+		.anisotropyEnable = vk::True,
+		.maxAnisotropy = properties.limits.maxSamplerAnisotropy,
+		.compareEnable = vk::False,
+		.compareOp = vk::CompareOp::eAlways,
+	};
+	return vk::raii::Sampler(m_device, samplerInfo);
+}
+
 uint32_t Renderer::findMemoryType(uint32_t typeFilter, vk::MemoryPropertyFlags properties) {
 	const vk::PhysicalDeviceMemoryProperties memProperties = m_physicalDevice.getMemoryProperties();
 	for (uint32_t i = 0; i < memProperties.memoryTypeCount; i++) {
@@ -962,11 +1051,17 @@ void Renderer::recordCommandBuffer(uint32_t imageIndex) {
 	);
 
 	for (const auto& batch : m_instanceBatches) {
-		if (batch.instanceCount == 0 || frameResources.instanceBuffer == nullptr) {
-			continue;
-		}
-
 		const auto& meshResource = m_meshResources[batch.meshHandle];
+		const auto& materialResource = m_matResources.at(batch.materialHandle);
+
+		commandBuffer.bindDescriptorSets(
+			vk::PipelineBindPoint::eGraphics,
+			m_pipelineLayout,
+			1,
+			*materialResource.descriptorSet,
+			nullptr
+		);
+
 		std::array vertexBuffers = {*meshResource.vertexBuffer, *frameResources.instanceBuffer};
 		std::array<vk::DeviceSize, 2> offsets = {0, 0};
 		commandBuffer.bindVertexBuffers(0, vertexBuffers, offsets);

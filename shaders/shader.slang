@@ -18,6 +18,7 @@ struct VSInput {
     float3 instanceNormal2;
 };
 
+[[vk::binding(0, 0)]]
 ConstantBuffer<UniformBuffer> ubo;
 
 struct V2F {
@@ -50,6 +51,7 @@ V2F vertMain(VSInput input) {
     return o;
 }
 
+[[vk::binding(0, 1)]]
 Sampler2D texture;
 
 [shader("fragment")]

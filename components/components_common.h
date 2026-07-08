@@ -32,6 +32,10 @@ struct Mesh {
     size_t meshHandle;
 };
 
+struct Material {
+    size_t materialHandle;
+};
+
 struct Camera {
     float speed;
     float sensitivity;
