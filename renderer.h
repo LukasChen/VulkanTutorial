@@ -61,13 +61,13 @@ struct InstanceData {
 
 	static std::array<vk::VertexInputAttributeDescription, 7> getAttributeDescriptions() {
 		return {{
-			{.location = 4, .binding = 1, .format = vk::Format::eR32G32B32A32Sfloat, .offset = offsetof(InstanceData, model) + sizeof(glm::vec4) * 0},
-			{.location = 5, .binding = 1, .format = vk::Format::eR32G32B32A32Sfloat, .offset = offsetof(InstanceData, model) + sizeof(glm::vec4) * 1},
-			{.location = 6, .binding = 1, .format = vk::Format::eR32G32B32A32Sfloat, .offset = offsetof(InstanceData, model) + sizeof(glm::vec4) * 2},
-			{.location = 7, .binding = 1, .format = vk::Format::eR32G32B32A32Sfloat, .offset = offsetof(InstanceData, model) + sizeof(glm::vec4) * 3},
-			{.location = 8, .binding = 1, .format = vk::Format::eR32G32B32Sfloat, .offset = offsetof(InstanceData, normal) + sizeof(glm::vec3) * 0},
-			{.location = 9, .binding = 1, .format = vk::Format::eR32G32B32Sfloat, .offset = offsetof(InstanceData, normal) + sizeof(glm::vec3) * 1},
-			{.location = 10, .binding = 1, .format = vk::Format::eR32G32B32Sfloat, .offset = offsetof(InstanceData, normal) + sizeof(glm::vec3) * 2}
+			{.location = 3, .binding = 1, .format = vk::Format::eR32G32B32A32Sfloat, .offset = offsetof(InstanceData, model) + sizeof(glm::vec4) * 0},
+			{.location = 4, .binding = 1, .format = vk::Format::eR32G32B32A32Sfloat, .offset = offsetof(InstanceData, model) + sizeof(glm::vec4) * 1},
+			{.location = 5, .binding = 1, .format = vk::Format::eR32G32B32A32Sfloat, .offset = offsetof(InstanceData, model) + sizeof(glm::vec4) * 2},
+			{.location = 6, .binding = 1, .format = vk::Format::eR32G32B32A32Sfloat, .offset = offsetof(InstanceData, model) + sizeof(glm::vec4) * 3},
+			{.location = 7, .binding = 1, .format = vk::Format::eR32G32B32Sfloat, .offset = offsetof(InstanceData, normal) + sizeof(glm::vec3) * 0},
+			{.location = 8, .binding = 1, .format = vk::Format::eR32G32B32Sfloat, .offset = offsetof(InstanceData, normal) + sizeof(glm::vec3) * 1},
+			{.location = 9, .binding = 1, .format = vk::Format::eR32G32B32Sfloat, .offset = offsetof(InstanceData, normal) + sizeof(glm::vec3) * 2}
 		}};
 	}
 };
