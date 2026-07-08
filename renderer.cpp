@@ -82,6 +82,7 @@ size_t Renderer::uploadMesh(const Model& meshData) {
 
 
 size_t Renderer::uploadTexture(const stbi_uc* pixels, int width, int height, int texChannels) {
+	const vk::Format textureFormat = vk::Format::eR8G8B8A8Srgb;
 	vk::DeviceSize imageSize = width * height * 4;
 	auto [stagingBuffer, stagingBufferMemory] =
 		createBuffer(imageSize, vk::BufferUsageFlagBits::eTransferSrc, vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent);
@@ -92,7 +93,7 @@ size_t Renderer::uploadTexture(const stbi_uc* pixels, int width, int height, int
 
 	auto [textureImage, textureImageMemory] = createImage(width,
 		 height,
-		 vk::Format::eR8G8B8A8Unorm,
+		 textureFormat,
 		 vk::ImageTiling::eOptimal,
 		 vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eSampled,
 		 vk::MemoryPropertyFlagBits::eDeviceLocal);
@@ -102,7 +103,7 @@ size_t Renderer::uploadTexture(const stbi_uc* pixels, int width, int height, int
 	transitionImageLayout(commandBuffer, textureImage, vk::ImageLayout::eTransferDstOptimal, vk::ImageLayout::eShaderReadOnlyOptimal);
 	endSingleTimeCommands(std::move(commandBuffer));
 
-	vk::raii::ImageView textureImageView = createImageView(*textureImage, vk::Format::eR8G8B8A8Unorm, vk::ImageAspectFlagBits::eColor);
+	vk::raii::ImageView textureImageView = createImageView(*textureImage, textureFormat, vk::ImageAspectFlagBits::eColor);
 	vk::raii::Sampler textureSampler = createImageSampler();
 
 	vk::DescriptorSetAllocateInfo allocInfo {
@@ -851,7 +852,7 @@ void Renderer::createTextureImage() {
 
 	std::tie(m_textureImage, m_textureImageMemory) = createImage(texWidth,
 		 texHeight,
-		 vk::Format::eR8G8B8A8Unorm,
+		 vk::Format::eR8G8B8A8Srgb,
 		 vk::ImageTiling::eOptimal,
 		 vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eSampled,
 		 vk::MemoryPropertyFlagBits::eDeviceLocal);
@@ -864,7 +865,7 @@ void Renderer::createTextureImage() {
 
 
 void Renderer::createTextureImageView() {
-	m_textureImageView = createImageView(*m_textureImage, vk::Format::eR8G8B8A8Unorm, vk::ImageAspectFlagBits::eColor);
+	m_textureImageView = createImageView(*m_textureImage, vk::Format::eR8G8B8A8Srgb, vk::ImageAspectFlagBits::eColor);
 }
 
 void Renderer::createTextureSampler() {
@@ -881,6 +882,8 @@ void Renderer::createTextureSampler() {
 		.maxAnisotropy = properties.limits.maxSamplerAnisotropy,
 		.compareEnable = vk::False,
 		.compareOp = vk::CompareOp::eAlways,
+		.minLod = 0.0f,
+		.maxLod = 0.0f,
 	};
 	m_textureSampler = vk::raii::Sampler(m_device, samplerInfo);
 }
@@ -900,6 +903,8 @@ vk::raii::Sampler Renderer::createImageSampler() {
 		.maxAnisotropy = properties.limits.maxSamplerAnisotropy,
 		.compareEnable = vk::False,
 		.compareOp = vk::CompareOp::eAlways,
+		.minLod = 0.0f,
+		.maxLod = 0.0f,
 	};
 	return vk::raii::Sampler(m_device, samplerInfo);
 }

@@ -80,7 +80,9 @@ Model::Model(const std::string& filename) {
 			auto key = std::make_tuple(vertIndex, texCoordIndex, normalIndex);
 			auto it = uniqueVertices.find(key);
 			if (it == uniqueVertices.end()) {
-				glm::vec2 uv = texCoordIndex >= 0 ? texCoords[texCoordIndex] : glm::vec2{0.0f, 0.0f};
+				glm::vec2 uv = texCoordIndex >= 0
+					? glm::vec2{texCoords[texCoordIndex].x, 1.0f - texCoords[texCoordIndex].y}
+					: glm::vec2{0.0f, 0.0f};
 				uint16_t newIndex = static_cast<uint16_t>(vertices.size());
 				vertices.emplace_back(verts[vertIndex], normals[normalIndex], glm::vec3{0.5f, 0.5f, 0.5f}, uv);
 				it = uniqueVertices.emplace(key, newIndex).first;
