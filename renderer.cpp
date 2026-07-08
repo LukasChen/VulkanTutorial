@@ -113,14 +113,31 @@ void Renderer::createFrameDescriptors() {
 			.offset = 0,
 			.range = sizeof(FrameUniformBufferObject)
 		};
-		vk::WriteDescriptorSet descriptorWrite{
-			.dstSet = frame.resources.descriptorSet,
-			.dstBinding = 0,
-			.descriptorCount = 1,
-			.descriptorType = vk::DescriptorType::eUniformBuffer,
-			.pBufferInfo = &bufferInfo,
+		vk::DescriptorImageInfo imageInfo {
+			.sampler = m_textureSampler,
+			.imageView = m_textureImageView,
+			.imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal
 		};
-		m_device.updateDescriptorSets(descriptorWrite, {});
+
+		std::array<vk::WriteDescriptorSet, 2> descriptorWrites {{
+			{
+				.dstSet = frame.resources.descriptorSet,
+				.dstBinding = 0,
+				.dstArrayElement = 0,
+				.descriptorCount = 1,
+				.descriptorType = vk::DescriptorType::eUniformBuffer,
+				.pBufferInfo = &bufferInfo,
+			},
+			{
+				.dstSet = frame.resources.descriptorSet,
+				.dstBinding = 1,
+				.dstArrayElement = 0,
+				.descriptorCount = 1,
+				.descriptorType = vk::DescriptorType::eCombinedImageSampler,
+				.pImageInfo = &imageInfo
+			}
+		}};
+		m_device.updateDescriptorSets(descriptorWrites, {});
 	}
 }
 
@@ -723,16 +740,22 @@ std::pair<vk::raii::Buffer, vk::raii::DeviceMemory> Renderer::createMeshBuffer(
 }
 
 void Renderer::createDescriptorPool() {
-	vk::DescriptorPoolSize poolSize{
-		.type = vk::DescriptorType::eUniformBuffer,
-		.descriptorCount = MAX_ENTITY_COUNT
-	};
+	std::array<vk::DescriptorPoolSize, 2> poolSizes = {{
+		{
+			.type = vk::DescriptorType::eUniformBuffer,
+			.descriptorCount = MAX_ENTITY_COUNT
+		},
+		{
+			.type = vk::DescriptorType::eCombinedImageSampler,
+			.descriptorCount = MAX_ENTITY_COUNT
+		}
+	}};
 
 	vk::DescriptorPoolCreateInfo poolInfo{
 		.flags = vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet,
 		.maxSets = 4096,
-		.poolSizeCount = 1,
-		.pPoolSizes = &poolSize
+		.poolSizeCount = poolSizes.size(),
+		.pPoolSizes = poolSizes.data()
 	};
 
 	m_descriptorPool = vk::raii::DescriptorPool(m_device, poolInfo);

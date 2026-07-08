@@ -50,11 +50,13 @@ V2F vertMain(VSInput input) {
     return o;
 }
 
+Sampler2D texture;
+
 [shader("fragment")]
 float4 fragMain(V2F input) : SV_Target {
     float ambient = 0.05f;
     float diffuse = max(dot(normalize(lightDir), normalize(input.normal)), 0.0);
     float lit = ambient + (1.0f - ambient) * diffuse;
-    float3 color = lit * input.color;
-    return float4(color, 1.0);
+    float4 color = lit * texture.Sample(input.texCoord);
+    return color;
 }
