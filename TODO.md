@@ -1,5 +1,5 @@
 # Milestones
-- [ ] Instanced Forest Scene
+- [x] Instanced Forest Scene
 - [ ] Rigged Animation
 
 # Engine Project TODO
@@ -19,7 +19,7 @@
 - [x] Build an ECS architecture with clear ownership and update ordering.
 - [x] Add user input
 - [ ] Add a transform hierarchy for parent-child scene relationships.
-- [ ] Implement a game loop with fixed timestep simulation support.
+- [x] Implement a game loop with fixed timestep simulation support.
 - [ ] Add an event or messaging system for engine subsystems.
 - [ ] Add a basic service or subsystem registry only where needed.
 
@@ -30,12 +30,12 @@
 - [x] Add instanced rendering.
 - [ ] Add transparent render pass
 - [ ] Add front-to-back sorting
-- [ ] Create abstractions for render passes, pipelines, buffers, and materials.
-- [ ] Add mesh, texture, and shader asset management.
+- [x] Create abstractions for render passes, pipelines, buffers, and materials.
+- [x] Add mesh, texture, and shader asset management.
 - [ ] Support multiple cameras and viewport rendering.
 - [ ] Add material instances and parameter editing.
 - [ ] Implement frustum culling.
-- [ ] Add skybox or environment lighting support.
+- [x] Add skybox or environment lighting support.
 - [ ] Add shadow mapping.
 - [ ] Add post-processing pipeline support.
 - [ ] Add debug rendering for bounds, lights, and physics shapes.
