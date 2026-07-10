@@ -40,4 +40,6 @@ private:
 
 	// ecs
 	std::vector<std::unique_ptr<BaseSystem>> m_systems;
+
+	std::chrono::time_point<std::chrono::high_resolution_clock> m_lastTime;
 };

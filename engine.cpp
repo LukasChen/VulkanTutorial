@@ -3,6 +3,8 @@
 #include "components/components_common.h"
 #include "game/systems/cameraSystem.h"
 
+#include <iostream>
+
 Engine::Engine(Registry& registry)
 	: m_window(createWindow()),
 	  m_glfwInitialized(true),
@@ -12,6 +14,8 @@ Engine::Engine(Registry& registry)
 	  m_renderer(m_window, m_registry, m_camera) {
 	initWindow();
 	BindSystem<CameraSystem>();
+
+	m_lastTime = std::chrono::high_resolution_clock::now();
 }
 
 Engine::~Engine() {
@@ -45,8 +49,17 @@ void Engine::mainLoop() {
 	while (!glfwWindowShouldClose(m_window)) {
 		glfwPollEvents();
 
+		const auto currentTime = std::chrono::high_resolution_clock::now();
+		const float deltaTime =
+			std::chrono::duration<float, std::chrono::seconds::period>(currentTime - m_lastTime).count();
+
+		m_lastTime = std::chrono::high_resolution_clock::now();
+
+		std::cout << deltaTime << "\n";
+
+
 		for (auto& system : m_systems) {
-			system->doUpdate(m_registry, 0.006f);
+			system->doUpdate(m_registry, deltaTime);
 		}
 
 		m_renderer.drawFrame();
@@ -60,8 +73,8 @@ Entity Engine::addCamera() {
 		glm::vec3(0.0f, 0.0f, 0.0f)
 	});
 	m_registry.get<Camera>().addComponent(camera, Camera{
-		0.1f,
-		0.05f
+		1.0f,
+		0.5f
 	});
 	return camera;
 }

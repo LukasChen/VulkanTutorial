@@ -93,7 +93,7 @@ float3 computeAtmosphere(float3 rayDir) {
 
     float2 innerIntersections = getIntersections(rayOri, rayDir, cameraHeight2, innerRadius2);
     float2 outerIntersections = getIntersections(rayOri, rayDir, cameraHeight2, outerRadius2);
-    bool isGround = 0.0 < innerIntersections.x;
+    bool isGround = 0.3 < innerIntersections.x;
 
     if (outerIntersections.x == outerIntersections.y) {
         return float3(0.0);
