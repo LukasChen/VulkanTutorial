@@ -31,6 +31,7 @@ import vulkan_hpp;
 #include "model.h"
 #include "vertex_layout.h"
 #include "ecs/ecs.hpp"
+#include "primitive.h"
 
 inline constexpr uint32_t WIDTH = 800;
 inline constexpr uint32_t HEIGHT = 600;
@@ -73,7 +74,8 @@ struct InstanceData {
 };
 
 struct FrameUniformBufferObject {
-	glm::mat4 vp;
+	glm::mat4 projection;
+	glm::mat4 view;
 };
 
 struct InstanceBatch {
@@ -141,6 +143,17 @@ struct MaterialResources {
 	vk::raii::DescriptorSet descriptorSet;
 };
 
+enum class GraphicsPipelineId : size_t {
+	Mesh,
+	Skybox,
+	Count
+};
+
+struct GraphicsPipelineResources {
+	vk::raii::PipelineLayout layout = nullptr;
+	vk::raii::Pipeline pipeline = nullptr;
+};
+
 class Renderer {
 public:
 	Renderer(GLFWwindow* window, Registry& registry, Entity camera);
@@ -150,6 +163,7 @@ public:
 	void rebuildInstanceBatches();
 	size_t uploadMesh(const Model& meshData);
 	size_t uploadTexture(const stbi_uc* pixels, int width, int height, int texChannels);
+	size_t uploadHDRTexture(const float* pixels, int width, int height, int texChannels);
 	void drawFrame();
 	void onFramebufferResized();
 
@@ -169,8 +183,7 @@ private:
 	vk::Extent2D m_swapChainExtent;
 	vk::SurfaceFormatKHR m_swapChainSurfaceFormat;
 	std::vector<SwapchainData> m_swapchainData;
-	vk::raii::PipelineLayout m_pipelineLayout = nullptr;
-	vk::raii::Pipeline m_graphicsPipeline = nullptr;
+	std::vector<GraphicsPipelineResources> m_graphicsPipelines;
 	vk::raii::CommandPool m_commandPool = nullptr;
 	vk::raii::CommandPool m_transferCommandPool = nullptr;
 	vk::raii::DescriptorSetLayout m_descriptorSetLayout = nullptr;
@@ -217,7 +230,18 @@ private:
 	void createSwapChain();
 	void createDescriptorSetLayout();
 	void createSwapImageViews();
-	void createGraphicsPipeline();
+	void createGraphicsPipelines();
+	GraphicsPipelineResources createGraphicsPipeline(
+		const vk::raii::ShaderModule& shaderModule,
+		const char* vertexEntryPoint,
+		const char* fragmentEntryPoint,
+		std::span<const vk::VertexInputBindingDescription> bindingDescriptions,
+		std::span<const vk::VertexInputAttributeDescription> attributeDescriptions,
+		std::span<const vk::DescriptorSetLayout> descriptorSetLayouts,
+		vk::CullModeFlags cullMode,
+		vk::Bool32 depthWriteEnable,
+		vk::CompareOp depthCompareOp
+	);
 	void createCommandPool();
 	void createTextureImage();
 	void createTextureImageView();
@@ -227,6 +251,7 @@ private:
 	void createFrameDescriptors();
 	void createCommandBuffer();
 	void createSyncObjects();
+	void createSkybox();
 	void recordCommandBuffer(uint32_t imageIndex);
 	void transition_image_layout(
 		vk::Image image,
@@ -258,6 +283,7 @@ private:
 		const void* data,
 		vk::BufferUsageFlagBits bufferType
 	);
+	size_t uploadTextureData(const void* pixels, int width, int height, vk::DeviceSize imageSize, vk::Format textureFormat);
 	void copyBuffer(vk::raii::Buffer& srcBuffer, vk::raii::Buffer& dstBuffer, vk::DeviceSize size);
 	void copyBufferToImage(vk::raii::CommandBuffer& commandBuffer, const vk::raii::Buffer& buffer, vk::raii::Image& image, uint32_t width, uint32_t height);
 	vk::SurfaceFormatKHR chooseSwapSurfaceFormat(std::vector<vk::SurfaceFormatKHR> const& availableFormats);
@@ -285,4 +311,7 @@ private:
 	vk::raii::ImageView createImageView(const vk::Image& image, vk::Format format, vk::ImageAspectFlags aspectFlags);
 	vk::raii::ShaderModule createShaderModule(const std::vector<char>& code) const;
 	std::vector<const char*> getRequiredInstanceExtensions();
+
+	size_t m_skyboxMeshHandle;
+	size_t m_skyboxMaterialHandle;
 };

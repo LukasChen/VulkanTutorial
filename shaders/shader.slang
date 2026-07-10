@@ -1,7 +1,8 @@
 static float3 lightDir = float3(0.0, 1.0, -1.0);
 
 struct UniformBuffer {
-    float4x4 viewProjectionMatrix;
+    float4x4 projectionMatrix;
+    float4x4 viewMatrix;
 };
 
 struct VSInput {
@@ -42,7 +43,7 @@ V2F vertMain(VSInput input) {
         input.instanceNormal2
     ));
 
-    o.pos = mul(ubo.viewProjectionMatrix, mul(modelMatrix, float4(input.inPos, 1.0)));
+    o.pos = mul(ubo.projectionMatrix, mul(ubo.viewMatrix, mul(modelMatrix, float4(input.inPos, 1.0))));
     o.normal = mul(normalMatrix, input.inNormal);
     o.texCoord = input.inTexCoord;
     return o;

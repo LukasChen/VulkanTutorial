@@ -1,4 +1,5 @@
 #include "renderer.h"
+#include "resourceUtils.h"
 
 #include <algorithm>
 #include <cassert>
@@ -81,9 +82,17 @@ size_t Renderer::uploadMesh(const Model& meshData) {
 }
 
 
-size_t Renderer::uploadTexture(const stbi_uc* pixels, int width, int height, int texChannels) {
-	const vk::Format textureFormat = vk::Format::eR8G8B8A8Srgb;
-	vk::DeviceSize imageSize = width * height * 4;
+size_t Renderer::uploadTexture(const stbi_uc* pixels, int width, int height, int) {
+	const vk::DeviceSize imageSize = static_cast<vk::DeviceSize>(width) * height * STBI_rgb_alpha;
+	return uploadTextureData(pixels, width, height, imageSize, vk::Format::eR8G8B8A8Srgb);
+}
+
+size_t Renderer::uploadHDRTexture(const float* pixels, int width, int height, int) {
+	const vk::DeviceSize imageSize = static_cast<vk::DeviceSize>(width) * height * STBI_rgb_alpha * sizeof(float);
+	return uploadTextureData(pixels, width, height, imageSize, vk::Format::eR32G32B32A32Sfloat);
+}
+
+size_t Renderer::uploadTextureData(const void* pixels, int width, int height, vk::DeviceSize imageSize, vk::Format textureFormat) {
 	auto [stagingBuffer, stagingBufferMemory] =
 		createBuffer(imageSize, vk::BufferUsageFlagBits::eTransferSrc, vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent);
 
@@ -219,7 +228,7 @@ void Renderer::updateFrameResources() {
 	proj[1][1] *= -1;
 
 	auto& frameResources = currentFrame().resources;
-	const FrameUniformBufferObject ubo{proj * viewMat};
+	const FrameUniformBufferObject ubo{proj, viewMat};
 	memcpy(frameResources.uniformBufferMapped, &ubo, sizeof(ubo));
 
 	if (m_instanceCount == 0) {
@@ -373,7 +382,7 @@ void Renderer::initVulkan() {
 	createLogicalDevice();
 	createSwapChain();
 	createDescriptorSetLayout();
-	createGraphicsPipeline();
+	createGraphicsPipelines();
 	createCommandPool();
 	// createTextureImage();
 	// createTextureImageView();
@@ -383,6 +392,8 @@ void Renderer::initVulkan() {
 	createFrameDescriptors();
 	createCommandBuffer();
 	createSyncObjects();
+
+	createSkybox();
 }
 
 void Renderer::createFrameResources() {
@@ -633,23 +644,12 @@ void Renderer::createSwapImageViews() {
 	}
 }
 
-void Renderer::createGraphicsPipeline() {
+void Renderer::createGraphicsPipelines() {
 	std::vector<char> shaderCode = readFile("shaders/slang.spv");
 	vk::raii::ShaderModule shaderModule = createShaderModule(shaderCode);
 
-	vk::PipelineShaderStageCreateInfo vertShaderStageInfo{
-		.stage = vk::ShaderStageFlagBits::eVertex,
-		.module = shaderModule,
-		.pName = "vertMain"
-	};
+	m_graphicsPipelines.resize(static_cast<size_t>(GraphicsPipelineId::Count));
 
-	vk::PipelineShaderStageCreateInfo fragShaderStageInfo{
-		.stage = vk::ShaderStageFlagBits::eFragment,
-		.module = shaderModule,
-		.pName = "fragMain"
-	};
-
-	std::array<vk::PipelineShaderStageCreateInfo, 2> shaderStages = {vertShaderStageInfo, fragShaderStageInfo};
 	std::array bindingDescriptions = {
 		Vertex::getBindingDescription(),
 		InstanceData::getBindingDescription()
@@ -660,6 +660,68 @@ void Renderer::createGraphicsPipeline() {
 		attributeDescriptions{};
 	std::ranges::copy(vertexAttributeDescriptions, attributeDescriptions.begin());
 	std::ranges::copy(instanceAttributeDescriptions, attributeDescriptions.begin() + vertexAttributeDescriptions.size());
+
+	std::array<vk::DescriptorSetLayout, 2> descriptorSetLayouts = {
+		*m_descriptorSetLayout, *m_materialDescriptorSetLayout
+	};
+
+	m_graphicsPipelines[static_cast<size_t>(GraphicsPipelineId::Mesh)] = createGraphicsPipeline(
+		shaderModule,
+		"vertMain",
+		"fragMain",
+		bindingDescriptions,
+		attributeDescriptions,
+		descriptorSetLayouts,
+		vk::CullModeFlagBits::eBack,
+		vk::True,
+		vk::CompareOp::eLess
+	);
+
+	std::vector<char> skyboxShaderCode = readFile("shaders/skybox.spv");
+	vk::raii::ShaderModule skyboxShaderModule = createShaderModule(skyboxShaderCode);
+
+	std::array skyboxBindingDescriptions = {
+		Vertex::getBindingDescription()
+	};
+
+
+	m_graphicsPipelines[static_cast<size_t>(GraphicsPipelineId::Skybox)] = createGraphicsPipeline(
+		skyboxShaderModule,
+		"vertMain",
+		"fragMain",
+		skyboxBindingDescriptions,
+		vertexAttributeDescriptions,
+		descriptorSetLayouts,
+		vk::CullModeFlagBits::eNone,
+		vk::False,
+		vk::CompareOp::eLessOrEqual
+	);
+}
+
+GraphicsPipelineResources Renderer::createGraphicsPipeline(
+	const vk::raii::ShaderModule& shaderModule,
+	const char* vertexEntryPoint,
+	const char* fragmentEntryPoint,
+	std::span<const vk::VertexInputBindingDescription> bindingDescriptions,
+	std::span<const vk::VertexInputAttributeDescription> attributeDescriptions,
+	std::span<const vk::DescriptorSetLayout> descriptorSetLayouts,
+	vk::CullModeFlags cullMode,
+	vk::Bool32 depthWriteEnable,
+	vk::CompareOp depthCompareOp
+) {
+	vk::PipelineShaderStageCreateInfo vertShaderStageInfo{
+		.stage = vk::ShaderStageFlagBits::eVertex,
+		.module = shaderModule,
+		.pName = vertexEntryPoint
+	};
+
+	vk::PipelineShaderStageCreateInfo fragShaderStageInfo{
+		.stage = vk::ShaderStageFlagBits::eFragment,
+		.module = shaderModule,
+		.pName = fragmentEntryPoint
+	};
+
+	std::array<vk::PipelineShaderStageCreateInfo, 2> shaderStages = {vertShaderStageInfo, fragShaderStageInfo};
 
 	vk::PipelineVertexInputStateCreateInfo vertexInputInfo{
 		.vertexBindingDescriptionCount = static_cast<uint32_t>(bindingDescriptions.size()),
@@ -674,7 +736,7 @@ void Renderer::createGraphicsPipeline() {
 		.depthClampEnable = vk::False,
 		.rasterizerDiscardEnable = vk::False,
 		.polygonMode = vk::PolygonMode::eFill,
-		.cullMode = vk::CullModeFlagBits::eBack,
+		.cullMode = cullMode,
 		.frontFace = vk::FrontFace::eClockwise,
 		.depthBiasEnable = vk::False,
 		.lineWidth = 1.0f
@@ -707,20 +769,18 @@ void Renderer::createGraphicsPipeline() {
 		.pDynamicStates = dynamicStates.data()
 	};
 
-	std::array<vk::DescriptorSetLayout, 2> descriptorSetLayouts = {
-		*m_descriptorSetLayout, *m_materialDescriptorSetLayout
-	};
-
 	vk::PipelineLayoutCreateInfo pipelineLayoutInfo{
-		.setLayoutCount = descriptorSetLayouts.size(),
+		.setLayoutCount = static_cast<uint32_t>(descriptorSetLayouts.size()),
 		.pSetLayouts = descriptorSetLayouts.data()
 	};
-	m_pipelineLayout = vk::raii::PipelineLayout(m_device, pipelineLayoutInfo);
+	GraphicsPipelineResources pipelineResources{
+		.layout = vk::raii::PipelineLayout(m_device, pipelineLayoutInfo)
+	};
 
 	vk::PipelineDepthStencilStateCreateInfo depthStencil{
 		.depthTestEnable = vk::True,
-		.depthWriteEnable = vk::True,
-		.depthCompareOp = vk::CompareOp::eLess,
+		.depthWriteEnable = depthWriteEnable,
+		.depthCompareOp = depthCompareOp,
 		.depthBoundsTestEnable = vk::False,
 		.stencilTestEnable = vk::False
 	};
@@ -737,7 +797,7 @@ void Renderer::createGraphicsPipeline() {
 			.pDepthStencilState = &depthStencil,
 			.pColorBlendState = &colorBlending,
 			.pDynamicState = &dynamicState,
-			.layout = m_pipelineLayout
+			.layout = pipelineResources.layout
 		},
 		{
 			.colorAttachmentCount = 1,
@@ -746,11 +806,12 @@ void Renderer::createGraphicsPipeline() {
 		}
 	};
 
-	m_graphicsPipeline = vk::raii::Pipeline(
+	pipelineResources.pipeline = vk::raii::Pipeline(
 		m_device,
 		nullptr,
 		pipelineCreateInfo.get<vk::GraphicsPipelineCreateInfo>()
 	);
+	return pipelineResources;
 }
 
 void Renderer::createCommandPool() {
@@ -1032,7 +1093,8 @@ void Renderer::recordCommandBuffer(uint32_t imageIndex) {
 	};
 
 	commandBuffer.beginRendering(renderingInfo);
-	commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, *m_graphicsPipeline);
+	const auto& meshPipeline = m_graphicsPipelines[static_cast<size_t>(GraphicsPipelineId::Mesh)];
+	commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, *meshPipeline.pipeline);
 	commandBuffer.setViewport(
 		0,
 		vk::Viewport(
@@ -1049,7 +1111,7 @@ void Renderer::recordCommandBuffer(uint32_t imageIndex) {
 	const auto& frameResources = currentFrame().resources;
 	commandBuffer.bindDescriptorSets(
 		vk::PipelineBindPoint::eGraphics,
-		m_pipelineLayout,
+		meshPipeline.layout,
 		0,
 		*frameResources.descriptorSet,
 		nullptr
@@ -1061,7 +1123,7 @@ void Renderer::recordCommandBuffer(uint32_t imageIndex) {
 
 		commandBuffer.bindDescriptorSets(
 			vk::PipelineBindPoint::eGraphics,
-			m_pipelineLayout,
+			meshPipeline.layout,
 			1,
 			*materialResource.descriptorSet,
 			nullptr
@@ -1073,6 +1135,34 @@ void Renderer::recordCommandBuffer(uint32_t imageIndex) {
 		commandBuffer.bindIndexBuffer(*meshResource.indexBuffer, 0, vk::IndexType::eUint16);
 		commandBuffer.drawIndexed(meshResource.indiceSize, batch.instanceCount, 0, 0, batch.firstInstance);
 	}
+
+	// Skybox rendering
+
+	const auto& skyboxPipeline = m_graphicsPipelines[static_cast<size_t>(GraphicsPipelineId::Skybox)];
+	commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, *skyboxPipeline.pipeline);
+
+	const auto& skyboxMeshResource = m_meshResources.at(m_skyboxMeshHandle);
+	const auto& skyboxMatResource = m_matResources.at(m_skyboxMaterialHandle);
+
+	commandBuffer.bindDescriptorSets(
+		vk::PipelineBindPoint::eGraphics,
+		skyboxPipeline.layout,
+		0,
+		*frameResources.descriptorSet,
+		nullptr
+	);
+
+	commandBuffer.bindDescriptorSets(
+		vk::PipelineBindPoint::eGraphics,
+		skyboxPipeline.layout,
+		1,
+		*skyboxMatResource.descriptorSet,
+		nullptr
+	);
+
+	commandBuffer.bindVertexBuffers(0, *skyboxMeshResource.vertexBuffer, {0});
+	commandBuffer.bindIndexBuffer(*skyboxMeshResource.indexBuffer, 0, vk::IndexType::eUint16);
+	commandBuffer.drawIndexed(skyboxMeshResource.indiceSize, 1, 0, 0, 0);
 
 	commandBuffer.endRendering();
 
@@ -1319,6 +1409,14 @@ void Renderer::recreateSwapChain() {
 	cleanupSwapChain();
 	createSwapChain();
 	m_framebufferResized = false;
+}
+
+void Renderer::createSkybox() {
+	Model skybox = Primitive::createSphere(1.0f, 32, 64, true);
+	m_skyboxMeshHandle = uploadMesh(skybox);
+
+	HDRImageTexture image = ResourceUtils::loadHDRTexture("golden_gate_hills_1k.hdr");
+	m_skyboxMaterialHandle = uploadHDRTexture(image.pixels, image.width, image.height, image.texChannels);
 }
 
 std::pair<vk::raii::Image, vk::raii::DeviceMemory> Renderer::createImage(

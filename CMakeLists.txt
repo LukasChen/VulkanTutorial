@@ -76,7 +76,7 @@ find_program(SLANGC_EXECUTABLE slangc HINTS $ENV{VULKAN_SDK}/bin REQUIRED)
 
 set(TEMPLATE_DIR ${CMAKE_BINARY_DIR}/${TEMPLATE_NAME})
 
-add_executable (${TEMPLATE_NAME} main.cpp engine.cpp renderer.cpp model.cpp input.cpp)
+add_executable (${TEMPLATE_NAME} main.cpp engine.cpp renderer.cpp model.cpp input.cpp resourceUtils.cpp)
 set_target_properties (${TEMPLATE_NAME} PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${TEMPLATE_DIR})
 set_target_properties (${TEMPLATE_NAME} PROPERTIES CXX_STANDARD 20)
 target_link_libraries (${TEMPLATE_NAME} Vulkan::cppm glfw)
@@ -103,26 +103,46 @@ endif()
 # Slang shader
 set (SHADER_TARGET ${TEMPLATE_NAME}Shader)
 set (SHADER_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/shaders")
-set (SHADER_SOURCES "${SHADER_SOURCE_DIR}/shader.slang")
 set (SHADER_OUTPUT_DIR "${TEMPLATE_DIR}/shaders")
-set (SHADER_OUTPUT "${SHADER_OUTPUT_DIR}/slang.spv")
 set (ENTRY_POINTS -entry vertMain -entry fragMain)
-add_custom_command(
-  OUTPUT  "${SHADER_OUTPUT}"
-  COMMAND "${CMAKE_COMMAND}" -E make_directory "${SHADER_OUTPUT_DIR}"
-  COMMAND "${SLANGC_EXECUTABLE}" shader.slang -target spirv -profile spirv_1_4 -emit-spirv-directly -fvk-use-entrypoint-name ${ENTRY_POINTS} -o "${SHADER_OUTPUT}"
-  WORKING_DIRECTORY "${SHADER_SOURCE_DIR}"
-  DEPENDS "${SHADER_SOURCES}"
-  COMMENT "Compiling Slang Shaders"
-  VERBATIM
+
+set(SHADER_FILES
+  shader.slang
+  skybox.slang
 )
-add_custom_target(${SHADER_TARGET} DEPENDS "${SHADER_OUTPUT}")
+
+set(SHADER_OUTPUTS)
+foreach(SHADER_FILE IN LISTS SHADER_FILES)
+  get_filename_component(SHADER_NAME "${SHADER_FILE}" NAME_WE)
+
+  if(SHADER_NAME STREQUAL "shader")
+    set(SHADER_OUTPUT_NAME "slang")
+  else()
+    set(SHADER_OUTPUT_NAME "${SHADER_NAME}")
+  endif()
+
+  set(SHADER_SOURCE "${SHADER_SOURCE_DIR}/${SHADER_FILE}")
+  set(SHADER_OUTPUT "${SHADER_OUTPUT_DIR}/${SHADER_OUTPUT_NAME}.spv")
+  list(APPEND SHADER_OUTPUTS "${SHADER_OUTPUT}")
+
+  add_custom_command(
+    OUTPUT  "${SHADER_OUTPUT}"
+    COMMAND "${CMAKE_COMMAND}" -E make_directory "${SHADER_OUTPUT_DIR}"
+    COMMAND "${SLANGC_EXECUTABLE}" "${SHADER_FILE}" -target spirv -profile spirv_1_4 -emit-spirv-directly -fvk-use-entrypoint-name ${ENTRY_POINTS} -o "${SHADER_OUTPUT}"
+    WORKING_DIRECTORY "${SHADER_SOURCE_DIR}"
+    DEPENDS "${SHADER_SOURCE}"
+    COMMENT "Compiling ${SHADER_FILE}"
+    VERBATIM
+  )
+endforeach()
+
+add_custom_target(${SHADER_TARGET} DEPENDS ${SHADER_OUTPUTS})
 add_dependencies(${TEMPLATE_NAME} ${SHADER_TARGET})
 
 add_custom_command(
   TARGET ${TEMPLATE_NAME} POST_BUILD
   COMMAND "${CMAKE_COMMAND}" -E make_directory "$<TARGET_FILE_DIR:${TEMPLATE_NAME}>/shaders"
-  COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${SHADER_OUTPUT}" "$<TARGET_FILE_DIR:${TEMPLATE_NAME}>/shaders/slang.spv"
+  COMMAND "${CMAKE_COMMAND}" -E copy_if_different ${SHADER_OUTPUTS} "$<TARGET_FILE_DIR:${TEMPLATE_NAME}>/shaders"
   COMMENT "Copying shader output to the runtime directory"
   VERBATIM
 )

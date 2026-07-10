@@ -81,12 +81,17 @@ void loadScene(Registry& reg, Engine& engine) {
 	size_t treeMatHandle = renderer->uploadTexture(image2.pixels, image2.width, image2.height, image2.texChannels);
 	stbi_image_free(image2.pixels);
 
-	Entity tree = addMeshEntity(reg, renderer, treeMeshHandle, treeMatHandle);
-	reg.get<Transform>(tree).position = glm::vec3(-2.0f, 0.0f, 0.0f);
+	for (int i = 0; i < 5; i++) {
+		for (int j = 0; j < 5; j++) {
+			Entity tree = addMeshEntity(reg, renderer, treeMeshHandle, treeMatHandle);
+			reg.get<Transform>(tree).position = glm::vec3(-5.0f + i * 4.0f, 0.0f, j * 4.0f);
+		}
+	}
+
 
 	size_t planeMeshHandle = renderer->uploadMesh(Primitive::createPlane());
 	Entity plane = addMeshEntity(reg, renderer, planeMeshHandle, matHandle);
-	reg.get<Transform>(plane).position = glm::vec3(0.0f, -0.5f, 0.0f);
+	reg.get<Transform>(plane).position = glm::vec3(0.0f, 0.0f, 0.0f);
 	reg.get<Transform>(plane).scale = glm::vec3(10.0f, 1.0f, 10.0f);
 }
 
