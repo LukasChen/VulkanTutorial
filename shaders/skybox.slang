@@ -21,20 +21,22 @@ ConstantBuffer<UniformBuffer> ubo;
 Sampler2D texture;
 
 static const float PI = 3.14159265358979323846;
-static const float INF = 3.4028234663852886e38;
-
-static const float EarthRadius = 6360e3;
-static const float AtmosphereRadius = 6420e3;
-static const float RayleighScaleHeight = 7994.0;
-static const float MieScaleHeight = 1200.0;
-static const float3 BetaRayleigh = float3(3.8e-6, 13.5e-6, 33.1e-6);
-static const float3 BetaMie = float3(21.0e-6, 21.0e-6, 21.0e-6);
-static const float MieAsymmetry = 0.76;
-static const uint ViewSamples = 32;
-static const uint LightSamples = 8;
-static const float ViewerAltitude = 1.0;
-static const float SunIntensity = 20.0;
-static const float MieExtinctionMul = 1.1;
+static const float3 LightDir = normalize(float3(-3.0, 3.0, -3.0));
+static const float CameraHeight = 1.000001;
+static const float3 InvWaveLength = float3(5.60204474633241, 9.4732844379203038, 19.643802610477206);
+static const float InnerRadius = 1.0;
+static const float OuterRadius = 1.025;
+static const float ESun = 10.0;
+static const float Kr = 0.0025;
+static const float Km = 0.0015;
+static const float ScaleDepth = 0.25;
+static const int Samples = 2;
+static const float G = -0.99;
+static const float3 GroundColor = float3(0.37, 0.35, 0.34);
+static const float Gamma = 1.0 / 2.2;
+static const float3 SunColor = float3(1.0, 0.93, 0.78);
+static const float SunDiskCos = 0.99985;
+static const float SunGlowCos = 0.992;
 
 [shader("vertex")]
 V2F vertMain(VSInput input) {
@@ -51,114 +53,118 @@ V2F vertMain(VSInput input) {
     return output;
 }
 
-bool raySphereIntersect(float3 origin, float3 direction, float radius, out float t0, out float t1) {
-    t0 = 0.0;
-    t1 = 0.0;
-    float b = dot(direction, origin);
-    float c = dot(origin, origin) - radius * radius;
-    float discriminant = b * b - c;
-    if (discriminant <= 0.0) {
-        return false;
-    }
-
-    float root = sqrt(discriminant);
-    t0 = -b - root;
-    t1 = -b + root;
-    if (t0 > t1) {
-        float tmp = t0;
-        t0 = t1;
-        t1 = tmp;
-    }
-    return true;
+float scale(float fCos) {
+    float x = 1.0 - fCos;
+    return ScaleDepth * exp(-0.00287 + x * (0.459 + x * (3.83 + x * (-6.80 + x * 5.25))));
 }
 
-float3 computeIncidentLight(float3 origin, float3 direction, float tMin, float tMax, float3 sunDirection) {
-    float t0;
-    float t1;
-    if (!raySphereIntersect(origin, direction, AtmosphereRadius, t0, t1) || t1 < 0.0) {
+float2 getIntersections(float3 pos, float3 dir, float dist2, float rad2) {
+    float b = 2.0 * dot(pos, dir);
+    float c = dist2 - rad2;
+    float det = max(0.0, b * b - 4.0 * c);
+    float root = sqrt(det);
+    return 0.5 * float2(-b - root, -b + root);
+}
+
+float getRayleighPhase(float fCos2) {
+    return 0.75 * (2.0 + 0.5 * fCos2);
+}
+
+float getMiePhase(float fCos, float fCos2, float g, float g2) {
+    return 1.5 * ((1.0 - g2) / (2.0 + g2)) * (1.0 + fCos2) /
+        pow(1.0 + g2 - 2.0 * g * fCos, 1.5);
+}
+
+float3 computeAtmosphere(float3 rayDir) {
+    float innerRadius2 = InnerRadius * InnerRadius;
+    float outerRadius2 = OuterRadius * OuterRadius;
+    float krESun = Kr * ESun;
+    float kmESun = Km * ESun;
+    float kr4PI = Kr * 4.0 * PI;
+    float km4PI = Km * 4.0 * PI;
+    float atmosphereScale = 1.0 / (OuterRadius - InnerRadius);
+    float scaleOverScaleDepth = atmosphereScale / ScaleDepth;
+    float g2 = G * G;
+
+    float3 lightDir = LightDir;
+    float3 rayOri = float3(0.0, CameraHeight, 0.0);
+    float cameraHeight = length(rayOri);
+    float cameraHeight2 = cameraHeight * cameraHeight;
+
+    float2 innerIntersections = getIntersections(rayOri, rayDir, cameraHeight2, innerRadius2);
+    float2 outerIntersections = getIntersections(rayOri, rayDir, cameraHeight2, outerRadius2);
+    bool isGround = 0.0 < innerIntersections.x;
+
+    if (outerIntersections.x == outerIntersections.y) {
         return float3(0.0);
     }
 
-    if (t0 > tMin && t0 > 0.0) {
-        tMin = t0;
-    }
-    if (t1 < tMax) {
-        tMax = t1;
-    }
+    float rayNear = max(0.0, outerIntersections.x);
+    float rayFar = isGround ? innerIntersections.x : outerIntersections.y;
+    float3 farPos = rayOri + rayDir * rayFar;
+    float3 farPosNorm = normalize(farPos);
 
-    float segmentLength = (tMax - tMin) / float(ViewSamples);
-    float tCurrent = tMin;
-    float3 sumRayleigh = float3(0.0);
-    float3 sumMie = float3(0.0);
-    float opticalDepthRayleigh = 0.0;
-    float opticalDepthMie = 0.0;
+    float3 startPos = rayOri + rayDir * rayNear;
+    float startPosHeight = length(startPos);
+    float3 startPosNorm = startPos / startPosHeight;
+    float startAngle = dot(rayDir, startPosNorm);
+    float startDepth = exp(scaleOverScaleDepth * (InnerRadius - startPosHeight));
+    float startOffset = startDepth * scale(startAngle);
 
-    float mu = dot(direction, sunDirection);
-    float phaseRayleigh = 3.0 / (16.0 * PI) * (1.0 + mu * mu);
-    float phaseMie =
-        3.0 / (8.0 * PI) *
-        ((1.0 - MieAsymmetry * MieAsymmetry) * (1.0 + mu * mu)) /
-        ((2.0 + MieAsymmetry * MieAsymmetry) *
-            pow(1.0 + MieAsymmetry * MieAsymmetry - 2.0 * MieAsymmetry * mu, 1.5));
+    float cameraAngle = dot(-rayDir, farPosNorm);
+    float cameraScale = scale(cameraAngle);
+    float cameraOffset = exp((InnerRadius - cameraHeight) / ScaleDepth) * cameraScale;
 
-    for (uint i = 0; i < ViewSamples; ++i) {
-        float3 samplePosition = origin + (tCurrent + segmentLength * 0.5) * direction;
-        float height = length(samplePosition) - EarthRadius;
+    float temp = scale(dot(farPosNorm, lightDir)) + scale(dot(farPosNorm, -rayDir));
 
-        float hr = exp(-height / RayleighScaleHeight) * segmentLength;
-        float hm = exp(-height / MieScaleHeight) * segmentLength;
-        opticalDepthRayleigh += hr;
-        opticalDepthMie += hm;
+    float sampleLength = (rayFar - rayNear) / float(Samples);
+    float scaledLength = sampleLength * atmosphereScale;
+    float3 sampleDir = rayDir * sampleLength;
+    float3 samplePoint = startPos + sampleDir * 0.5;
 
-        float t0Light;
-        float t1Light;
-        raySphereIntersect(samplePosition, sunDirection, AtmosphereRadius, t0Light, t1Light);
-        float segmentLengthLight = t1Light / float(LightSamples);
-        float tCurrentLight = 0.0;
-        float opticalDepthLightRayleigh = 0.0;
-        float opticalDepthLightMie = 0.0;
-
-        uint j;
-        for (j = 0; j < LightSamples; ++j) {
-            float3 samplePositionLight = samplePosition + (tCurrentLight + segmentLengthLight * 0.5) * sunDirection;
-            float heightLight = length(samplePositionLight) - EarthRadius;
-            if (heightLight < 0.0) {
-                break;
-            }
-
-            opticalDepthLightRayleigh += exp(-heightLight / RayleighScaleHeight) * segmentLengthLight;
-            opticalDepthLightMie += exp(-heightLight / MieScaleHeight) * segmentLengthLight;
-            tCurrentLight += segmentLengthLight;
-        }
-
-        if (j == LightSamples) {
-            float3 tau =
-                BetaRayleigh * (opticalDepthRayleigh + opticalDepthLightRayleigh) +
-                BetaMie * MieExtinctionMul * (opticalDepthMie + opticalDepthLightMie);
-            float3 attenuation = float3(exp(-tau.x), exp(-tau.y), exp(-tau.z));
-            sumRayleigh += attenuation * hr;
-            sumMie += attenuation * hm;
-        }
-
-        tCurrent += segmentLength;
+    float3 frontColor = float3(0.0);
+    float3 attenuate = float3(0.0);
+    for (int i = 0; i < Samples; ++i) {
+        float height = length(samplePoint);
+        float depth = exp(scaleOverScaleDepth * (InnerRadius - height));
+        float lightAngle = dot(lightDir, samplePoint) / height;
+        float sampleCameraAngle = dot(rayDir, samplePoint) / height;
+        float scatter = isGround
+            ? depth * temp - cameraOffset
+            : startOffset + depth * (scale(lightAngle) - scale(sampleCameraAngle));
+        attenuate = exp(-scatter * (InvWaveLength * kr4PI + km4PI));
+        frontColor += attenuate * (depth * scaledLength);
+        samplePoint += sampleDir;
     }
 
-    return (sumRayleigh * BetaRayleigh * phaseRayleigh + sumMie * BetaMie * phaseMie) * SunIntensity;
+    frontColor = clamp(frontColor, 0.0, 3.0);
+    float3 rayleighColor = frontColor * (InvWaveLength * krESun);
+    float3 mieColor = frontColor * kmESun;
+
+    if (isGround) {
+        float3 groundMieColor = clamp(attenuate, 0.0, 3.0);
+        float3 groundColor = 1.0 - exp(-(rayleighColor + GroundColor * groundMieColor));
+        return pow(groundColor, float3(Gamma));
+    }
+
+    float fCos = dot(-lightDir, rayDir);
+    float fCos2 = fCos * fCos;
+    float3 skyColor =
+        getRayleighPhase(fCos2) * rayleighColor +
+        getMiePhase(fCos, fCos2, G, g2) * mieColor;
+    return pow(skyColor, float3(Gamma));
+}
+
+float3 computeSun(float3 rayDir) {
+    float sunCos = dot(rayDir, LightDir);
+    float disk = smoothstep(SunDiskCos, 1.0, sunCos);
+    float glow = smoothstep(SunGlowCos, 1.0, sunCos);
+    return SunColor * (disk * 6.0 + glow * glow * 0.8);
 }
 
 [shader("fragment")]
 float4 fragMain(V2F input) : SV_Target {
     float3 direction = normalize(input.direction);
-    float3 sunDirection = normalize(float3(0.0, 0.35, -1.0));
-    float3 origin = float3(0.0, EarthRadius + ViewerAltitude, 0.0);
-
-    float t0;
-    float t1;
-    float tMax = INF;
-    if (raySphereIntersect(origin, direction, EarthRadius, t0, t1) && t0 > 0.0) {
-        tMax = t0;
-    }
-
-    float3 color = computeIncidentLight(origin, direction, 0.0, tMax, sunDirection);
+    float3 color = computeAtmosphere(direction) + computeSun(direction);
     return float4(color, 1.0);
 }

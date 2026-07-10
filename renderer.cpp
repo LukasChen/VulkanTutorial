@@ -1412,7 +1412,7 @@ void Renderer::recreateSwapChain() {
 }
 
 void Renderer::createSkybox() {
-	Model skybox = Primitive::createSphere(1.0f, 32, 64, true);
+	Model skybox = Primitive::createSphere(1.0f, 16, 32, true);
 	m_skyboxMeshHandle = uploadMesh(skybox);
 
 	HDRImageTexture image = ResourceUtils::loadHDRTexture("golden_gate_hills_1k.hdr");
