@@ -47,6 +47,7 @@ inline constexpr bool enableValidationLayers = true;
 #endif
 
 inline const uint32_t MAX_ENTITY_COUNT = 4096;
+inline constexpr uint32_t SHADOW_MAP_SIZE = 2048;
 
 struct InstanceData {
 	glm::mat4 model;
@@ -76,6 +77,8 @@ struct InstanceData {
 struct FrameUniformBufferObject {
 	glm::mat4 projection;
 	glm::mat4 view;
+	glm::mat4 lightViewProjection;
+	glm::vec4 lightDirection;
 };
 
 struct InstanceBatch {
@@ -100,6 +103,15 @@ struct InstanceBatchKeyHash {
 	}
 };
 
+struct ShadowResources {
+	vk::raii::Image image = nullptr;
+	vk::raii::DeviceMemory memory = nullptr;
+	vk::raii::ImageView view = nullptr;
+	vk::raii::Sampler sampler = nullptr;
+
+	vk::ImageLayout layout = vk::ImageLayout::eUndefined;
+};
+
 struct FrameResources {
 	vk::raii::Buffer uniformBuffer = nullptr;
 	vk::raii::DeviceMemory uniformBufferMemory = nullptr;
@@ -109,6 +121,8 @@ struct FrameResources {
 	vk::raii::DeviceMemory instanceBufferMemory = nullptr;
 	void* instanceBufferMapped = nullptr;
 	size_t instanceCapacity = 0;
+
+	ShadowResources shadow;
 };
 
 struct MeshResources {
@@ -146,6 +160,7 @@ struct MaterialResources {
 enum class GraphicsPipelineId : size_t {
 	Mesh,
 	Skybox,
+	Shadow,
 	Count
 };
 
@@ -242,11 +257,24 @@ private:
 		vk::Bool32 depthWriteEnable,
 		vk::CompareOp depthCompareOp
 	);
+	GraphicsPipelineResources createGraphicsPipeline(
+		std::span<const vk::PipelineShaderStageCreateInfo> shaderStages,
+		std::span<const vk::VertexInputBindingDescription> bindingDescriptions,
+		std::span<const vk::VertexInputAttributeDescription> attributeDescriptions,
+		std::span<const vk::DescriptorSetLayout> descriptorSetLayouts,
+		vk::Format colorAttachmentFormat,
+		vk::Format depthAttachmentFormat,
+		vk::CullModeFlags cullMode,
+		vk::Bool32 depthWriteEnable,
+		vk::CompareOp depthCompareOp,
+		vk::Bool32 depthBiasEnable
+	);
 	void createCommandPool();
 	void createTextureImage();
 	void createTextureImageView();
 	void createTextureSampler();
 	void createDepthResources();
+	void createShadowResources();
 	void createDescriptorPool();
 	void createFrameDescriptors();
 	void createCommandBuffer();
@@ -289,6 +317,7 @@ private:
 	vk::SurfaceFormatKHR chooseSwapSurfaceFormat(std::vector<vk::SurfaceFormatKHR> const& availableFormats);
 	vk::Format findSupportedFormat(std::span<const vk::Format> candidates, vk::ImageTiling tiling, vk::FormatFeatureFlags features);
 	vk::Format findDepthFormat();
+	vk::Format findShadowFormat();
 	vk::PresentModeKHR chooseSwapPresentMode(std::vector<vk::PresentModeKHR> const& availablePresentModes);
 	vk::Extent2D chooseSwapExtent(vk::SurfaceCapabilitiesKHR const& capabilities);
 	uint32_t chooseSwapMinImageCount(vk::SurfaceCapabilitiesKHR const& surfaceCapabilities);
@@ -308,6 +337,7 @@ private:
 		vk::MemoryPropertyFlags properties
 	);
 	vk::raii::Sampler createImageSampler();
+	vk::raii::Sampler createShadowSampler();
 	vk::raii::ImageView createImageView(const vk::Image& image, vk::Format format, vk::ImageAspectFlags aspectFlags);
 	vk::raii::ShaderModule createShaderModule(const std::vector<char>& code) const;
 	std::vector<const char*> getRequiredInstanceExtensions();

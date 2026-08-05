@@ -104,11 +104,12 @@ endif()
 set (SHADER_TARGET ${TEMPLATE_NAME}Shader)
 set (SHADER_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/shaders")
 set (SHADER_OUTPUT_DIR "${TEMPLATE_DIR}/shaders")
-set (ENTRY_POINTS -entry vertMain -entry fragMain)
+# set (ENTRY_POINTS -entry vertMain -entry fragMain)
 
 set(SHADER_FILES
   shader.slang
   skybox.slang
+  shadow.slang
 )
 
 set(SHADER_OUTPUTS)
@@ -121,6 +122,12 @@ foreach(SHADER_FILE IN LISTS SHADER_FILES)
     set(SHADER_OUTPUT_NAME "${SHADER_NAME}")
   endif()
 
+  if(SHADER_NAME STREQUAL "shadow")
+    SET(SHADER_ENTRY_POINTS -entry vertMain)
+  else()
+    SET(SHADER_ENTRY_POINTS -entry vertMain -entry fragMain)
+  endif()
+
   set(SHADER_SOURCE "${SHADER_SOURCE_DIR}/${SHADER_FILE}")
   set(SHADER_OUTPUT "${SHADER_OUTPUT_DIR}/${SHADER_OUTPUT_NAME}.spv")
   list(APPEND SHADER_OUTPUTS "${SHADER_OUTPUT}")
@@ -128,7 +135,7 @@ foreach(SHADER_FILE IN LISTS SHADER_FILES)
   add_custom_command(
     OUTPUT  "${SHADER_OUTPUT}"
     COMMAND "${CMAKE_COMMAND}" -E make_directory "${SHADER_OUTPUT_DIR}"
-    COMMAND "${SLANGC_EXECUTABLE}" "${SHADER_FILE}" -target spirv -profile spirv_1_4 -emit-spirv-directly -fvk-use-entrypoint-name ${ENTRY_POINTS} -o "${SHADER_OUTPUT}"
+    COMMAND "${SLANGC_EXECUTABLE}" "${SHADER_FILE}" -target spirv -profile spirv_1_4 -emit-spirv-directly -fvk-use-entrypoint-name ${SHADER_ENTRY_POINTS} -o "${SHADER_OUTPUT}"
     WORKING_DIRECTORY "${SHADER_SOURCE_DIR}"
     DEPENDS "${SHADER_SOURCE}"
     COMMENT "Compiling ${SHADER_FILE}"

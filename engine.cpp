@@ -53,10 +53,7 @@ void Engine::mainLoop() {
 		const float deltaTime =
 			std::chrono::duration<float, std::chrono::seconds::period>(currentTime - m_lastTime).count();
 
-		m_lastTime = std::chrono::high_resolution_clock::now();
-
-		std::cout << deltaTime << "\n";
-
+		m_lastTime = currentTime;
 
 		for (auto& system : m_systems) {
 			system->doUpdate(m_registry, deltaTime);
