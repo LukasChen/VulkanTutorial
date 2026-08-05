@@ -221,11 +221,6 @@ void Renderer::createFrameDescriptors() {
 }
 
 void Renderer::updateFrameResources() {
-	static auto startTime = std::chrono::high_resolution_clock::now();
-	const auto currentTime = std::chrono::high_resolution_clock::now();
-	const float time =
-		std::chrono::duration<float, std::chrono::seconds::period>(currentTime - startTime).count();
-
 	const Transform& cameraTransform = m_registry.get<Transform>(m_camera);
 	glm::mat4 viewMat = glm::translate(glm::mat4(1.0f), cameraTransform.position);
 	viewMat = glm::rotate(viewMat, cameraTransform.rotation.y, glm::vec3(0, 1, 0));
@@ -244,16 +239,17 @@ void Renderer::updateFrameResources() {
 
 	const glm::vec3 lightDir = glm::normalize(glm::vec3(-3.0f, 3.0f, -3.0f));
 
-	const glm::vec3 sceneCenter = {3.0f, 2.0f, 8.0f};
+	constexpr float cameraShadowDistance = 8.0f;
+	const glm::vec3 shadowCenter = cameraTransform.position + cameraTransform.forward() * cameraShadowDistance;
 
 	constexpr float lightDistance = 30.0f;
-	constexpr float shadowExtent = 20.0f;
+	constexpr float shadowExtent = 10.0f;
 
-	const glm::vec3 lightPosition = sceneCenter + lightDir * lightDistance;
+	const glm::vec3 lightPosition = shadowCenter + lightDir * lightDistance;
 
 	const glm::mat4 lightView = glm::lookAtLH(
 		lightPosition,
-		sceneCenter,
+		shadowCenter,
 		glm::vec3(0, 1, 0)
 	);
 

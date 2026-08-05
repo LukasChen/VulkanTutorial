@@ -36,7 +36,7 @@
 - [ ] Add material instances and parameter editing.
 - [ ] Implement frustum culling.
 - [x] Add skybox or environment lighting support.
-- [ ] Add shadow mapping.
+- [x] Add shadow mapping.
 - [ ] Add post-processing pipeline support.
 - [ ] Add debug rendering for bounds, lights, and physics shapes.
 
