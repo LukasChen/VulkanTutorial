@@ -31,6 +31,7 @@ import vulkan_hpp;
 #include "model.h"
 #include "vertex_layout.h"
 #include "ecs/ecs.hpp"
+#include "scene.h"
 #include "primitive.h"
 
 inline constexpr uint32_t WIDTH = 800;
@@ -171,7 +172,7 @@ struct GraphicsPipelineResources {
 
 class Renderer {
 public:
-	Renderer(GLFWwindow* window, Registry& registry, Entity camera);
+	Renderer(GLFWwindow* window, Registry& registry);
 	~Renderer();
 
 	void createMeshEntity(Entity entity);
@@ -179,7 +180,7 @@ public:
 	size_t uploadMesh(const Model& meshData);
 	size_t uploadTexture(const stbi_uc* pixels, int width, int height, int texChannels);
 	size_t uploadHDRTexture(const float* pixels, int width, int height, int texChannels);
-	void drawFrame();
+	void drawFrame(const Scene& scene);
 	void onFramebufferResized();
 
 private:
@@ -210,7 +211,6 @@ private:
 	bool m_swapChainInitialized = false;
 
 	Registry& m_registry;
-	Entity m_camera;
 	std::vector<MeshResources> m_meshResources;
 	std::vector<MaterialResources> m_matResources;
 	std::vector<InstanceBatch> m_instanceBatches;
@@ -234,7 +234,7 @@ private:
 	void cleanup();
 
 	void createFrameResources();
-	void updateFrameResources();
+	void updateFrameResources(const Scene& scene);
 
 	void createInstance();
 	void createSurface();

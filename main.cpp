@@ -18,6 +18,7 @@
 
 #include "game/components/common.h"
 #include "game/systems/sinAnimSystem.h"
+#include "game/systems/lightSystem.h"
 
 struct ImageInfo {
 	stbi_uc* pixels;
@@ -104,6 +105,7 @@ int main() {
 
 		loadScene(reg, app);
 		app.BindSystem<SinAnimSystem>();
+		app.BindSystem<LightSystem>();
 
 		app.run();
 	} catch (const std::exception& e) {

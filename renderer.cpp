@@ -11,10 +11,9 @@
 
 #include "components/components_common.h"
 
-Renderer::Renderer(GLFWwindow* window, Registry& registry, Entity camera)
+Renderer::Renderer(GLFWwindow* window, Registry& registry)
 	: m_window(window),
-	  m_registry(registry),
-	  m_camera(camera) {
+	  m_registry(registry) {
 	initVulkan();
 }
 
@@ -220,8 +219,8 @@ void Renderer::createFrameDescriptors() {
 	}
 }
 
-void Renderer::updateFrameResources() {
-	const Transform& cameraTransform = m_registry.get<Transform>(m_camera);
+void Renderer::updateFrameResources(const Scene& scene) {
+	const Transform& cameraTransform = m_registry.get<Transform>(scene.camera);
 	glm::mat4 viewMat = glm::translate(glm::mat4(1.0f), cameraTransform.position);
 	viewMat = glm::rotate(viewMat, cameraTransform.rotation.y, glm::vec3(0, 1, 0));
 	viewMat = glm::rotate(viewMat, cameraTransform.rotation.x, glm::vec3(1, 0, 0));
@@ -237,7 +236,10 @@ void Renderer::updateFrameResources() {
 	);
 	proj[1][1] *= -1;
 
-	const glm::vec3 lightDir = glm::normalize(glm::vec3(-3.0f, 3.0f, -3.0f));
+	const auto& lightTrans = m_registry.get<Transform>(scene.sun);
+
+	// const glm::vec3 lightDir = glm::normalize(glm::vec3(-3.0f, 3.0f, -3.0f));
+	const glm::vec3 lightDir = lightTrans.forward();
 
 	constexpr float cameraShadowDistance = 8.0f;
 	const glm::vec3 shadowCenter = cameraTransform.position + cameraTransform.forward() * cameraShadowDistance;
@@ -331,7 +333,7 @@ void Renderer::updateFrameResources() {
 	}
 }
 
-void Renderer::drawFrame() {
+void Renderer::drawFrame(const Scene& scene) {
 	auto& frame = currentFrame();
 	const auto fenceResult =
 		m_device.waitForFences(*frame.inFlightFence, VK_TRUE, std::numeric_limits<uint64_t>::max());
@@ -360,7 +362,7 @@ void Renderer::drawFrame() {
 
 	m_device.resetFences(*frame.inFlightFence);
 	frame.commandBuffer.reset();
-	updateFrameResources();
+	updateFrameResources(scene);
 	recordCommandBuffer(imageIndex);
 
 	vk::PipelineStageFlags waitDestinationStageMask(vk::PipelineStageFlagBits::eColorAttachmentOutput);

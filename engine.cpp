@@ -11,9 +11,14 @@ Engine::Engine(Registry& registry)
 	  m_registry(registry),
 	  m_input(m_window),
 	  m_camera(addCamera()),
-	  m_renderer(m_window, m_registry, m_camera) {
+	  m_renderer(m_window, m_registry) {
 	initWindow();
 	BindSystem<CameraSystem>();
+
+	m_mainScene = {
+		.camera = addCamera(),
+		.sun = addLight()
+	};
 
 	m_lastTime = std::chrono::high_resolution_clock::now();
 }
@@ -59,7 +64,7 @@ void Engine::mainLoop() {
 			system->doUpdate(m_registry, deltaTime);
 		}
 
-		m_renderer.drawFrame();
+		m_renderer.drawFrame(m_mainScene);
 	}
 }
 
@@ -74,6 +79,16 @@ Entity Engine::addCamera() {
 		0.5f
 	});
 	return camera;
+}
+
+Entity Engine::addLight() {
+	const Entity light = m_registry.create();
+	m_registry.get<Transform>().addComponent(light, Transform{
+		glm::vec3(0.0f, 2.0f, 0.0f),
+		glm::radians(glm::vec3(-35.0f, -135.0f, 0.0f))
+	});
+	m_registry.get<Light>().addComponent(light, {});
+	return light;
 }
 
 void Engine::onFramebufferResized() {

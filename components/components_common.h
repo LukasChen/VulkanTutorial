@@ -40,3 +40,5 @@ struct Camera {
     float speed;
     float sensitivity;
 };
+
+struct Light {};

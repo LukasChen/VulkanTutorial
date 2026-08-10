@@ -5,6 +5,7 @@
 #include "ecs/ecs.hpp"
 #include "renderer.h"
 #include "input.h"
+#include "scene.h"
 
 class Engine {
 public:
@@ -27,6 +28,8 @@ private:
 	Registry& m_registry;
 
 	Entity m_camera;
+	Entity m_directionalLight;
+	Scene m_mainScene;
 	Renderer m_renderer;
 	Input m_input;
 
@@ -34,6 +37,7 @@ private:
 	void mainLoop();
 	void cleanup();
 	Entity addCamera();
+	Entity addLight();
 	void onFramebufferResized();
 	static GLFWwindow* createWindow();
 	static void framebufferResizeCallback(GLFWwindow* window, int width, int height);
