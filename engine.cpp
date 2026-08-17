@@ -9,6 +9,7 @@ Engine::Engine(Registry& registry)
 	: m_window(createWindow()),
 	  m_glfwInitialized(true),
 	  m_registry(registry),
+	  m_transforms(m_registry),
 	  m_input(m_window),
 	  m_camera(addCamera()),
 	  m_renderer(m_window, m_registry) {
@@ -70,10 +71,11 @@ void Engine::mainLoop() {
 
 Entity Engine::addCamera() {
 	const Entity camera = m_registry.create();
-	m_registry.get<Transform>().addComponent(camera, Transform{
+	addTransform(camera, {
 		glm::vec3(0.0f, 1.0f, -3.0f),
 		glm::vec3(0.0f, 0.0f, 0.0f)
 	});
+
 	m_registry.get<Camera>().addComponent(camera, Camera{
 		1.0f,
 		0.5f
@@ -83,7 +85,7 @@ Entity Engine::addCamera() {
 
 Entity Engine::addLight() {
 	const Entity light = m_registry.create();
-	m_registry.get<Transform>().addComponent(light, Transform{
+	addTransform(light, {
 		glm::vec3(0.0f, 2.0f, 0.0f),
 		glm::radians(glm::vec3(-35.0f, -135.0f, 0.0f))
 	});
@@ -93,6 +95,26 @@ Entity Engine::addLight() {
 
 void Engine::onFramebufferResized() {
 	m_renderer.onFramebufferResized();
+}
+
+void Engine::addTransform(Entity entity, TransData transform, Entity parent) {
+	m_registry.get<Transform>().addComponent(entity, Transform{
+		transform.localPosition,
+		transform.rotation,
+		transform.scale
+	});
+	if (parent != INVALID_ENTITY) {
+		m_registry.get<Relationship>().emplaceComponent(entity, Relationship(parent));
+	}
+}
+
+void Engine::SetParent(Entity parent, Entity child) {
+	auto& relationships = m_registry.get<Relationship>();
+	if (relationships.has(child)) {
+		relationships.get(child).parent = parent;
+	} else {
+		relationships.addComponent(child, Relationship(parent));
+	}
 }
 
 void Engine::cleanup() {

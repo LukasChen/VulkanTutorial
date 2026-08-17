@@ -30,7 +30,6 @@ struct ImageInfo {
 Entity addMeshEntity(Registry& reg, Renderer* renderer, size_t meshHandle, size_t matHandle = std::numeric_limits<size_t>::max()) {
 	Entity entity = reg.create();
 
-	reg.get<Transform>().addComponent(entity, {glm::vec3{0.0f, 0.0f, 0.0f}});
 	reg.get<Mesh>().addComponent(entity, Mesh(meshHandle));
 	if (matHandle != std::numeric_limits<size_t>::max()) {
 		reg.get<Material>().addComponent(entity, Material(matHandle));
@@ -42,7 +41,7 @@ Entity addMeshEntity(Registry& reg, Renderer* renderer, size_t meshHandle, size_
 void addDonuts(Registry& reg, Renderer* renderer, size_t meshHandle) {
 	for (int i = 0; i < 10; i++) {
 		Entity donut = addMeshEntity(reg, renderer, meshHandle);
-		reg.get<Transform>(donut).position = glm::vec3{0.0f, 1.5f, i};
+		reg.get<Transform>(donut).localPosition = glm::vec3{0.0f, 1.5f, i};
 		// reg.get<SinComponent>().addComponent(donut, SinComponent{1.0f, 1.0f});
 	}
 }
@@ -70,10 +69,15 @@ void loadScene(Registry& reg, Engine& engine) {
 	Model boxMeshData("box.obj");
 	size_t boxMeshHandle = renderer->uploadMesh(boxMeshData);
 	Entity box = addMeshEntity(reg, renderer, boxMeshHandle, matHandle);
-	reg.get<Transform>(box).position = glm::vec3(0.0f, 0.0f, 0.0f);
+	engine.addTransform(box, {glm::vec3(0.0f, 0.0f, 0.0f)});
+	reg.get<SinComponent>().addComponent(box, SinComponent{1.0f, 1.0f});
 
 	Entity box2 = addMeshEntity(reg, renderer, boxMeshHandle, matHandle);
-	reg.get<Transform>(box2).position = glm::vec3(2.0f, 0.0f, 0.0f);
+	engine.addTransform(box2, {glm::vec3(2.0f, 0.0f, 0.0f)});
+
+	Entity box3 = addMeshEntity(reg,renderer, boxMeshHandle, matHandle);
+	engine.addTransform(box3, {glm::vec3(4.0f, 0.0f, 0.0f)}, box);
+
 
 	Model treeMeshData("tree.obj");
 	size_t treeMeshHandle = renderer->uploadMesh(treeMeshData);
@@ -85,14 +89,14 @@ void loadScene(Registry& reg, Engine& engine) {
 	for (int i = 0; i < 5; i++) {
 		for (int j = 0; j < 5; j++) {
 			Entity tree = addMeshEntity(reg, renderer, treeMeshHandle, treeMatHandle);
-			reg.get<Transform>(tree).position = glm::vec3(-5.0f + i * 4.0f, 0.0f, j * 4.0f);
+			engine.addTransform(tree, {glm::vec3(-5.0f + i * 4.0f, 0.0f, j * 4.0f)});
 		}
 	}
 
 
 	size_t planeMeshHandle = renderer->uploadMesh(Primitive::createPlane());
 	Entity plane = addMeshEntity(reg, renderer, planeMeshHandle, matHandle);
-	reg.get<Transform>(plane).position = glm::vec3(0.0f, 0.0f, 0.0f);
+	engine.addTransform(plane, {glm::vec3(0.0f, 0.0f, 0.0f)});
 	reg.get<Transform>(plane).scale = glm::vec3(10.0f, 1.0f, 10.0f);
 }
 

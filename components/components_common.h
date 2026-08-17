@@ -1,10 +1,21 @@
 #pragma once
 
+#include <cmath>
 #include <glm/glm.hpp>
 #include "../ecs/ecs.hpp"
 
+struct TransData {
+    glm::vec3 localPosition;
+    glm::vec3 rotation;
+    glm::vec3 scale = glm::vec3(1.0f);
+};
+
+struct Relationship {
+    Entity parent = INVALID_ENTITY;
+};
+
 struct Transform {
-    glm::vec3 position;
+    glm::vec3 localPosition;
     glm::vec3 rotation;
     glm::vec3 scale = glm::vec3(1.0f);
 

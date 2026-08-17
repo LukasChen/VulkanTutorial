@@ -15,9 +15,9 @@ public:
 
     void update(View<Camera, Transform>& view, float dt) override {
         for (auto [camera, transform] : view) {
-            transform.position += transform.right() * m_engine.getInput()->getAxis(Axis::Horizontal) * camera.speed * dt;
-            transform.position += transform.forward() * m_engine.getInput()->getAxis(Axis::Vertical) * camera.speed * dt;
-            transform.position.y += m_engine.getInput()->getAxis(Axis::Elevation) * camera.speed * dt;
+            transform.localPosition += transform.right() * m_engine.getInput()->getAxis(Axis::Horizontal) * camera.speed * dt;
+            transform.localPosition += transform.forward() * m_engine.getInput()->getAxis(Axis::Vertical) * camera.speed * dt;
+            transform.localPosition.y += m_engine.getInput()->getAxis(Axis::Elevation) * camera.speed * dt;
 
             transform.rotation.y += m_engine.getInput()->getAxis(Axis::LookHorizontal) * camera.sensitivity * dt;
             transform.rotation.x += m_engine.getInput()->getAxis(Axis::LookVertical) * camera.sensitivity * dt;

@@ -10,6 +10,7 @@
 
 
 #include "components/components_common.h"
+#include "transformAccess.h"
 
 Renderer::Renderer(GLFWwindow* window, Registry& registry)
 	: m_window(window),
@@ -220,8 +221,10 @@ void Renderer::createFrameDescriptors() {
 }
 
 void Renderer::updateFrameResources(const Scene& scene) {
+	TransformAccess transforms(m_registry);
 	const Transform& cameraTransform = m_registry.get<Transform>(scene.camera);
-	glm::mat4 viewMat = glm::translate(glm::mat4(1.0f), cameraTransform.position);
+	const glm::vec3 cameraPosition = transforms.position(scene.camera);
+	glm::mat4 viewMat = glm::translate(glm::mat4(1.0f), cameraPosition);
 	viewMat = glm::rotate(viewMat, cameraTransform.rotation.y, glm::vec3(0, 1, 0));
 	viewMat = glm::rotate(viewMat, cameraTransform.rotation.x, glm::vec3(1, 0, 0));
 	viewMat = glm::rotate(viewMat, cameraTransform.rotation.z, glm::vec3(0, 0, 1));
@@ -242,7 +245,7 @@ void Renderer::updateFrameResources(const Scene& scene) {
 	const glm::vec3 lightDir = lightTrans.forward();
 
 	constexpr float cameraShadowDistance = 8.0f;
-	const glm::vec3 shadowCenter = cameraTransform.position + cameraTransform.forward() * cameraShadowDistance;
+	const glm::vec3 shadowCenter = cameraPosition + cameraTransform.forward() * cameraShadowDistance;
 
 	constexpr float lightDistance = 30.0f;
 	constexpr float shadowExtent = 10.0f;
@@ -325,7 +328,7 @@ void Renderer::updateFrameResources(const Scene& scene) {
 		}
 
 		const uint32_t instanceIndex = batch.firstInstance + batchWriteIndex;
-		glm::mat4 model = glm::translate(glm::mat4(1.0f), transform.position);
+		glm::mat4 model = glm::translate(glm::mat4(1.0f), transforms.position(it.entity()));
 		model = glm::scale(model, transform.scale);
 
 		const glm::mat3 normalMatrix = glm::transpose(glm::inverse(glm::mat3(model)));

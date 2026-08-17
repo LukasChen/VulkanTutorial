@@ -6,6 +6,8 @@
 #include "renderer.h"
 #include "input.h"
 #include "scene.h"
+#include "components/components_common.h"
+#include "transformAccess.h"
 
 class Engine {
 public:
@@ -15,17 +17,23 @@ public:
 	void run();
 	inline Renderer* getRenderer() { return &m_renderer; }
 	inline Input* getInput() { return &m_input; }
+	inline TransformAccess* getTransforms() { return &m_transforms; }
 
 	template<typename T>
 	void BindSystem() {
 		m_systems.push_back(std::make_unique<T>(*this, m_registry));
 	}
 
+	void SetParent(Entity parent, Entity child);
+
+	void addTransform(Entity entity, TransData transform, Entity parent = INVALID_ENTITY);
+
 private:
 	GLFWwindow* m_window = nullptr;
 	bool m_glfwInitialized = false;
 
 	Registry& m_registry;
+	TransformAccess m_transforms;
 
 	Entity m_camera;
 	Entity m_directionalLight;

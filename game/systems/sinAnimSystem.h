@@ -16,7 +16,7 @@ protected:
 
 	void update(View<SinComponent, Transform>& view, float dt) override {
         for (auto [sinComp, transform] : view) {
-            transform.position.y = sinComp.amplitude * std::sin(sinComp.time * sinComp.speed) * sinComp.amplitude;
+            transform.localPosition.y = sinComp.amplitude * std::sin(sinComp.time * sinComp.speed) * sinComp.amplitude;
             sinComp.time += dt;
         }
     };
