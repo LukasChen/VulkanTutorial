@@ -5,3 +5,8 @@ struct SinComponent {
     float amplitude;
     float time = 0;
 };
+
+struct SpinComponent {
+    float speed;
+};
+

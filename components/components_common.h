@@ -16,15 +16,15 @@ struct Relationship {
 
 struct Transform {
     glm::vec3 localPosition;
-    glm::vec3 rotation;
+    glm::vec3 localRotation;
     glm::vec3 scale = glm::vec3(1.0f);
 
     glm::vec3 forward() const {
-        float cosPitch = std::cos(rotation.x);
-        float sinPitch = std::sin(rotation.x);
+        float cosPitch = std::cos(localRotation.x);
+        float sinPitch = std::sin(localRotation.x);
 
-        float cosYaw = std::cos(rotation.y);
-        float sinYaw = std::sin(rotation.y);
+        float cosYaw = std::cos(localRotation.y);
+        float sinYaw = std::sin(localRotation.y);
 
         return glm::normalize(glm::vec3{
             cosPitch * sinYaw,

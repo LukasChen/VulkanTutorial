@@ -12,6 +12,15 @@ public:
 
     glm::vec3 position(Entity entity) const;
 
+    glm::mat4 rotationMatrix(Entity entity) const;
+
+    glm::vec3 rotation(Entity entity) const;
+
+    glm::mat4 matrix(Entity entity) const;
+
 private:
+    glm::mat4 localMatrix(Entity entity) const;
+
+
     Registry& m_registry;
 };

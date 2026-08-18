@@ -12,8 +12,8 @@ public:
 
 	void update(View<Light, Transform>& view, float deltaTime) override {
         for (auto [light, transform] : view) {
-            transform.rotation.y += 0.1f * deltaTime;
-            transform.rotation.y = std::fmod(transform.rotation.y, glm::two_pi<float>());
+            transform.localRotation.y += 0.1f * deltaTime;
+            transform.localRotation.y = std::fmod(transform.localRotation.y, glm::two_pi<float>());
         }
     }
 };

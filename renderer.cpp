@@ -224,10 +224,11 @@ void Renderer::updateFrameResources(const Scene& scene) {
 	TransformAccess transforms(m_registry);
 	const Transform& cameraTransform = m_registry.get<Transform>(scene.camera);
 	const glm::vec3 cameraPosition = transforms.position(scene.camera);
+	const glm::vec3 camRotation = transforms.rotation(scene.camera);
 	glm::mat4 viewMat = glm::translate(glm::mat4(1.0f), cameraPosition);
-	viewMat = glm::rotate(viewMat, cameraTransform.rotation.y, glm::vec3(0, 1, 0));
-	viewMat = glm::rotate(viewMat, cameraTransform.rotation.x, glm::vec3(1, 0, 0));
-	viewMat = glm::rotate(viewMat, cameraTransform.rotation.z, glm::vec3(0, 0, 1));
+	viewMat = glm::rotate(viewMat, camRotation.y, glm::vec3(0, 1, 0));
+	viewMat = glm::rotate(viewMat, camRotation.x, glm::vec3(1, 0, 0));
+	viewMat = glm::rotate(viewMat, camRotation.z, glm::vec3(0, 0, 1));
 
 	viewMat = glm::inverse(viewMat);
 
@@ -328,8 +329,12 @@ void Renderer::updateFrameResources(const Scene& scene) {
 		}
 
 		const uint32_t instanceIndex = batch.firstInstance + batchWriteIndex;
-		glm::mat4 model = glm::translate(glm::mat4(1.0f), transforms.position(it.entity()));
-		model = glm::scale(model, transform.scale);
+		glm::mat4 model = transforms.matrix(it.entity());
+		// glm::vec3 eulerAngles = transforms.rotation(it.entity());
+		// model = glm::rotate(model, eulerAngles.y, glm::vec3(0.0f, 1.0f, 0.0f));
+		// model = glm::rotate(model, eulerAngles.x, glm::vec3(1.0f, 0.0f, 0.0f));
+		// model = glm::rotate(model, eulerAngles.z, glm::vec3(0.0f, 0.0f, 1.0f));
+		// model = glm::scale(model, transform.scale);
 
 		const glm::mat3 normalMatrix = glm::transpose(glm::inverse(glm::mat3(model)));
 		instances[instanceIndex] = {model, normalMatrix};

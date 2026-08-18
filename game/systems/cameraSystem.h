@@ -19,8 +19,8 @@ public:
             transform.localPosition += transform.forward() * m_engine.getInput()->getAxis(Axis::Vertical) * camera.speed * dt;
             transform.localPosition.y += m_engine.getInput()->getAxis(Axis::Elevation) * camera.speed * dt;
 
-            transform.rotation.y += m_engine.getInput()->getAxis(Axis::LookHorizontal) * camera.sensitivity * dt;
-            transform.rotation.x += m_engine.getInput()->getAxis(Axis::LookVertical) * camera.sensitivity * dt;
+            transform.localRotation.y += m_engine.getInput()->getAxis(Axis::LookHorizontal) * camera.sensitivity * dt;
+            transform.localRotation.x += m_engine.getInput()->getAxis(Axis::LookVertical) * camera.sensitivity * dt;
         }
     }
 };

@@ -19,6 +19,7 @@
 #include "game/components/common.h"
 #include "game/systems/sinAnimSystem.h"
 #include "game/systems/lightSystem.h"
+#include "game/systems/spinSystem.h"
 
 struct ImageInfo {
 	stbi_uc* pixels;
@@ -71,6 +72,7 @@ void loadScene(Registry& reg, Engine& engine) {
 	Entity box = addMeshEntity(reg, renderer, boxMeshHandle, matHandle);
 	engine.addTransform(box, {glm::vec3(0.0f, 0.0f, 0.0f)});
 	reg.get<SinComponent>().addComponent(box, SinComponent{1.0f, 1.0f});
+	reg.get<SpinComponent>().addComponent(box, SpinComponent{1.0f});
 
 	Entity box2 = addMeshEntity(reg, renderer, boxMeshHandle, matHandle);
 	engine.addTransform(box2, {glm::vec3(2.0f, 0.0f, 0.0f)});
@@ -110,6 +112,7 @@ int main() {
 		loadScene(reg, app);
 		app.BindSystem<SinAnimSystem>();
 		app.BindSystem<LightSystem>();
+		app.BindSystem<SpinSystem>();
 
 		app.run();
 	} catch (const std::exception& e) {
