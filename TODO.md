@@ -15,10 +15,11 @@
 
 ## Core Engine
 
+- [ ] Implement gltf loader
 - [ ] Implement a scene system with entities, components, and serialization.
 - [x] Build an ECS architecture with clear ownership and update ordering.
 - [x] Add user input
-- [ ] Add a transform hierarchy for parent-child scene relationships.
+- [x] Add a transform hierarchy for parent-child scene relationships.
 - [x] Implement a game loop with fixed timestep simulation support.
 - [ ] Add an event or messaging system for engine subsystems.
 - [ ] Add a basic service or subsystem registry only where needed.
@@ -72,11 +73,22 @@
 
 ## Animation
 
-- [ ] Add skeleton and animation clip asset support.
-- [ ] Implement animation playback and blending.
-- [ ] Add animation state machines.
-- [ ] Add root motion support if needed by the game.
-- [ ] Add animation preview tools in the editor.
+- [ ] Choose the first animated asset and confirm it contains a skin, joints, inverse bind matrices, and at least one clip (use `.glb`/glTF; the current OBJ path cannot carry this data).
+- [ ] Extend `Model` with glTF loading through the existing `tinygltf` dependency; keep mesh primitives, materials, skins, joints, inverse bind matrices, and animation channels in one asset representation.
+- [ ] Add skinned vertex data (`JOINTS_0` and `WEIGHTS_0`) to `Vertex` and update vertex bindings, pipeline descriptions, and mesh upload code.
+- [ ] Define animation data types: joint hierarchy, bind/local transforms, inverse bind matrices, keyframe times, and translation/rotation/scale samplers.
+- [ ] Add an `Animator` ECS component containing the active clip, playback time, looping/speed flags, and a pose/joint-palette handle.
+- [ ] Implement `AnimationSystem` and bind it in `main.cpp`; advance time from the engine `deltaTime`, sample channels, and compute global joint transforms in hierarchy order.
+- [ ] Upload each animated entity's joint palette every frame (start with a dedicated non-instanced skinned draw path; add palette offsets to instancing after correctness is proven).
+- [ ] Add skinning to `shaders/shader.slang` and `shaders/shadow.slang`, including the joint-palette buffer and weighted position/normal transforms; recompile SPIR-V through the existing CMake shader target.
+- [ ] Preserve the existing `TransformAccess` hierarchy and define the relationship between entity transforms, the glTF root transform, and root motion.
+- [ ] Implement clip control (`play`, `pause`, `stop`, `set time`, loop/clamp) and handle clips with missing channels by using the bind pose.
+- [ ] Add cross-fade blending between two clips, then expose a small state machine (state, transitions, conditions, blend duration) through ECS data.
+- [ ] Decide whether root motion is needed; if enabled, extract the designated root joint delta and apply it to the entity `Transform` without double-applying it in the palette.
+- [ ] Add runtime diagnostics: missing attributes, invalid joint indices, clip duration, active state, and palette upload size.
+- [ ] Add a minimal animated sample scene and verify bind pose, looping playback, blend transitions, shadows, parenting, resize, and multiple animated entities.
+- [ ] Add loader/system math tests for interpolation, quaternion normalization, hierarchy propagation, looping, and skin-matrix generation.
+- [ ] Add animation preview tooling only after runtime playback and asset validation are stable.
 
 ## Particles and VFX
 

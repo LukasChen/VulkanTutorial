@@ -49,7 +49,13 @@ float calculateShadow(float4 lightClipPosition, float3 worldNormal) {
 
     float3 lightDirection = normalize(ubo.lightDirection.xyz);
 
-    float normalDotLight = max(dot(worldNormal, lightDirection), 0.0);
+    // Bias the receiver toward the light before comparing it with the shadow
+    // map.  The shadow pass also applies rasterizer depth bias to the stored
+    // depth; this receiver-side term removes the remaining self-shadowing
+    // caused by precision and slope differences between the two passes.
+    float normalDotLight = max(dot(normalize(worldNormal), lightDirection), 0.0);
+    float receiverBias = max(0.005 * (1.0 - normalDotLight), 0.0005);
+    currentDepth -= receiverBias;
 
     static const float2 texelSize = 1.0 / float2(2048.0, 2048.0);
 

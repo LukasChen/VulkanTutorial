@@ -16,6 +16,7 @@ struct Vertex {
 	glm::vec3 normal;
 	glm::vec2 uv;
 
+	Vertex() = default;
 	Vertex(glm::vec3 p, glm::vec3 n, glm::vec2 t = {0.0f, 0.0f}) : pos(p), normal(n), uv(t) {}
 
 	static vk::VertexInputBindingDescription getBindingDescription() {
