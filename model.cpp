@@ -5,6 +5,7 @@
 #include <map>
 #include <tuple>
 
+#define TINYGLTF_NO_STB_IMAGE_WRITE
 #define TINYGLTF_IMPLEMENTATION
 #include <tiny_gltf.h>
 
@@ -116,7 +117,7 @@ void Model::loadGltf(const std::string& filename) {
     std::string err;
     std::string warn;
 
-    bool ret = loader.LoadBinaryFromFile(&model, &err, &warn, filename);
+    bool ret = loader.LoadASCIIFromFile(&model, &err, &warn, filename);
 
     if (!warn.empty()) {
         std::cout << "glTF warning: " << warn << std::endl;
@@ -134,6 +135,8 @@ void Model::loadGltf(const std::string& filename) {
     indices.clear();
 
     for (const auto& mesh : model.meshes) {
+        std::cout << "Loading mesh: " << mesh.name << std::endl;
+        std::cout << "Primitive Size: " << mesh.primitives.size() << std::endl;
         for (const auto& primitive : mesh.primitives) {
             const tinygltf::Accessor& positionAccessor = model.accessors[primitive.attributes.at("POSITION")];
             const tinygltf::BufferView& positionBufferView = model.bufferViews[positionAccessor.bufferView];

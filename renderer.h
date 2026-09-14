@@ -85,6 +85,7 @@ struct FrameUniformBufferObject {
 struct InstanceBatch {
 	size_t meshHandle;
 	size_t materialHandle;
+	Entity matEntity;
 	uint32_t firstInstance;
 	uint32_t instanceCount;
 };
@@ -150,7 +151,7 @@ struct SwapchainData {
 	vk::raii::Semaphore renderFinishedSemaphore = nullptr;
 };
 
-struct MaterialResources {
+struct TextureResources {
 	vk::raii::Image image;
 	vk::raii::DeviceMemory imageMemory;
 	vk::raii::ImageView imageView;
@@ -178,8 +179,8 @@ public:
 	void createMeshEntity(Entity entity);
 	void rebuildInstanceBatches();
 	size_t uploadMesh(const Model& meshData);
-	size_t uploadTexture(const stbi_uc* pixels, int width, int height, int texChannels);
-	size_t uploadHDRTexture(const float* pixels, int width, int height, int texChannels);
+	size_t uploadTexture(const stbi_uc* pixels, int width, int height);
+	size_t uploadHDRTexture(const float* pixels, int width, int height);
 	void drawFrame(const Scene& scene);
 	void onFramebufferResized();
 
@@ -212,7 +213,7 @@ private:
 
 	Registry& m_registry;
 	std::vector<MeshResources> m_meshResources;
-	std::vector<MaterialResources> m_matResources;
+	std::vector<TextureResources> m_matResources;
 	std::vector<InstanceBatch> m_instanceBatches;
 	std::unordered_map<InstanceBatchKey, uint32_t, InstanceBatchKeyHash> m_instanceBatchToIndex;
 	size_t m_instanceCount = 0;
@@ -342,6 +343,9 @@ private:
 	vk::raii::ShaderModule createShaderModule(const std::vector<char>& code) const;
 	std::vector<const char*> getRequiredInstanceExtensions();
 
+	void createDefaultMaterial();
+
 	size_t m_skyboxMeshHandle;
 	size_t m_skyboxMaterialHandle;
+	size_t m_defaultMaterialHandle;
 };

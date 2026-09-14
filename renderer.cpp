@@ -29,7 +29,7 @@ void Renderer::createMeshEntity(Entity entity) {
 		return;
 	}
 
-	size_t matHandle = mat ? mat->materialHandle : -1;
+	size_t matHandle = mat ? mat->materialHandle : m_defaultMaterialHandle;
 	const InstanceBatchKey batchKey {
 		.meshHandle = mesh->meshHandle,
 		.materialHandle = matHandle
@@ -82,12 +82,12 @@ size_t Renderer::uploadMesh(const Model& meshData) {
 }
 
 
-size_t Renderer::uploadTexture(const stbi_uc* pixels, int width, int height, int) {
+size_t Renderer::uploadTexture(const stbi_uc* pixels, int width, int height) {
 	const vk::DeviceSize imageSize = static_cast<vk::DeviceSize>(width) * height * STBI_rgb_alpha;
 	return uploadTextureData(pixels, width, height, imageSize, vk::Format::eR8G8B8A8Srgb);
 }
 
-size_t Renderer::uploadHDRTexture(const float* pixels, int width, int height, int) {
+size_t Renderer::uploadHDRTexture(const float* pixels, int width, int height) {
 	const vk::DeviceSize imageSize = static_cast<vk::DeviceSize>(width) * height * STBI_rgb_alpha * sizeof(float);
 	return uploadTextureData(pixels, width, height, imageSize, vk::Format::eR32G32B32A32Sfloat);
 }
@@ -123,7 +123,7 @@ size_t Renderer::uploadTextureData(const void* pixels, int width, int height, vk
 
 	auto descriptorSets = m_device.allocateDescriptorSets(allocInfo);
 
-	MaterialResources material {
+	TextureResources material {
 		std::move(textureImage),
 		std::move(textureImageMemory),
 		std::move(textureImageView),
@@ -309,7 +309,11 @@ void Renderer::updateFrameResources(const Scene& scene) {
 	for (auto it = view.begin(); it != view.end(); ++it) {
 		auto [transform, mesh] = *it;
 		const Material* mat = m_registry.get<Material>().tryGet(it.entity());
-		const size_t matHandle = mat ? mat->materialHandle : -1;
+		// Keep the per-frame batch lookup consistent with createMeshEntity().
+		// Untextured entities are assigned the uploaded white default material
+		// when their batches are created, so they must use that same handle when
+		// writing instance data here.
+		const size_t matHandle = mat ? mat->materialHandle : m_defaultMaterialHandle;
 		const InstanceBatchKey batchKey {
 			.meshHandle = mesh.meshHandle,
 			.materialHandle = matHandle
@@ -449,6 +453,7 @@ void Renderer::initVulkan() {
 	createSyncObjects();
 
 	createSkybox();
+	createDefaultMaterial();
 }
 
 void Renderer::createFrameResources() {
@@ -1761,7 +1766,7 @@ void Renderer::createSkybox() {
 	m_skyboxMeshHandle = uploadMesh(skybox);
 
 	HDRImageTexture image = ResourceUtils::loadHDRTexture("golden_gate_hills_1k.hdr");
-	m_skyboxMaterialHandle = uploadHDRTexture(image.pixels, image.width, image.height, image.texChannels);
+	m_skyboxMaterialHandle = uploadHDRTexture(image.pixels, image.width, image.height);
 }
 
 std::pair<vk::raii::Image, vk::raii::DeviceMemory> Renderer::createImage(
@@ -1814,6 +1819,11 @@ vk::raii::ImageView Renderer::createImageView(
 		}
 	};
 	return vk::raii::ImageView(m_device, viewInfo);
+}
+
+void Renderer::createDefaultMaterial() {
+	const stbi_uc whitePixel[] = {255, 255, 255, 255};
+	m_defaultMaterialHandle = uploadTexture(whitePixel, 1, 1);
 }
 
 vk::raii::ShaderModule Renderer::createShaderModule(const std::vector<char>& code) const {

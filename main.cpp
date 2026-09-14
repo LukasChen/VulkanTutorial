@@ -64,7 +64,7 @@ void loadScene(Registry& reg, Engine& engine) {
 
 	ImageInfo image = loadImage("../textures/viking_room.png");
 
-	size_t matHandle = renderer->uploadTexture(image.pixels, image.width, image.height, image.texChannels);
+	size_t matHandle = renderer->uploadTexture(image.pixels, image.width, image.height);
 	stbi_image_free(image.pixels);
 
 	Model boxMeshData("box.obj");
@@ -80,16 +80,20 @@ void loadScene(Registry& reg, Engine& engine) {
 	Entity box3 = addMeshEntity(reg,renderer, boxMeshHandle, matHandle);
 	engine.addTransform(box3, {glm::vec3(4.0f, 0.0f, 0.0f)}, box);
 
+	Model monkey("monkey.gltf", ModelLoaderType::GLTF);
+	size_t monkeyMeshHandle = renderer->uploadMesh(monkey);
+	Entity monkeyEntity = addMeshEntity(reg, renderer, monkeyMeshHandle);
+	engine.addTransform(monkeyEntity, {glm::vec3(0.0f, 1.0f, -1.0f)});
 
 	Model treeMeshData("tree.obj");
 	size_t treeMeshHandle = renderer->uploadMesh(treeMeshData);
 
 	ImageInfo image2 = loadImage("tree-normal.jpg");
-	size_t treeMatHandle = renderer->uploadTexture(image2.pixels, image2.width, image2.height, image2.texChannels);
+	size_t treeMatHandle = renderer->uploadTexture(image2.pixels, image2.width, image2.height);
 	stbi_image_free(image2.pixels);
 
-	for (int i = 0; i < 5; i++) {
-		for (int j = 0; j < 5; j++) {
+	for (int i = 0; i < 10; i++) {
+		for (int j = 0; j < 10; j++) {
 			Entity tree = addMeshEntity(reg, renderer, treeMeshHandle, treeMatHandle);
 			engine.addTransform(tree, {glm::vec3(-5.0f + i * 4.0f, 0.0f, j * 4.0f)});
 		}

@@ -45,6 +45,7 @@ struct Mesh {
 
 struct Material {
     size_t materialHandle;
+    glm::vec3 baseColor{1.0f};
 };
 
 struct Camera {
