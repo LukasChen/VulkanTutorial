@@ -21,6 +21,7 @@
 #include "game/systems/sinAnimSystem.h"
 #include "game/systems/lightSystem.h"
 #include "game/systems/spinSystem.h"
+#include "game/systems/rainbowMaterialSystem.h"
 
 struct ImageInfo {
 	stbi_uc* pixels;
@@ -86,7 +87,8 @@ void loadScene(Registry& reg, Engine& engine) {
 
 	Model monkey("monkey.gltf", ModelLoaderType::GLTF);
 	size_t monkeyMeshHandle = renderer->uploadMesh(monkey);
-	Entity monkeyEntity = addMeshEntity(reg, renderer, monkeyMeshHandle);
+	MaterialHandle monkeyMaterialHandle = resource->createMaterial({INVALID_TEXTURE, glm::vec4(0.0f, 1.0f, 0, 1.0f)});
+	Entity monkeyEntity = addMeshEntity(reg, renderer, monkeyMeshHandle, monkeyMaterialHandle);
 	engine.addTransform(monkeyEntity, {glm::vec3(0.0f, 1.0f, -1.0f)});
 
 	Model treeMeshData("tree.obj");
@@ -109,6 +111,7 @@ void loadScene(Registry& reg, Engine& engine) {
 	Entity plane = addMeshEntity(reg, renderer, planeMeshHandle, materialHandle);
 	engine.addTransform(plane, {glm::vec3(0.0f, 0.0f, 0.0f)});
 	reg.get<Transform>(plane).scale = glm::vec3(10.0f, 1.0f, 10.0f);
+	reg.get<RainbowMaterial>().addComponent(plane, RainbowMaterial{1.0f});
 }
 
 int main() {
@@ -122,6 +125,7 @@ int main() {
 		app.BindSystem<SinAnimSystem>();
 		app.BindSystem<LightSystem>();
 		app.BindSystem<SpinSystem>();
+		app.BindSystem<RainbowMaterialSystem>();
 
 		app.run();
 	} catch (const std::exception& e) {

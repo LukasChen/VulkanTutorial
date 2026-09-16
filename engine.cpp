@@ -30,6 +30,7 @@ Engine::~Engine() {
 }
 
 void Engine::run() {
+	initSystems();
 	mainLoop();
 }
 
@@ -49,6 +50,12 @@ void Engine::framebufferResizeCallback(GLFWwindow* window, int, int) {
 	auto* app = reinterpret_cast<Engine*>(glfwGetWindowUserPointer(window));
 	if (app != nullptr) {
 		app->onFramebufferResized();
+	}
+}
+
+void Engine::initSystems() {
+	for (auto& system : m_systems) {
+		system->doStart(m_registry);
 	}
 }
 

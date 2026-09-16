@@ -21,6 +21,8 @@ public:
 	inline TransformAccess* getTransforms() { return &m_transforms; }
 	inline ResourceManager* getResource() { return &m_resourceManager; }
 
+	inline double getTime() const { return glfwGetTime(); }
+
 	template<typename T>
 	void BindSystem() {
 		m_systems.push_back(std::make_unique<T>(*this, m_registry));
@@ -45,6 +47,7 @@ private:
 	Input m_input;
 
 	void initWindow();
+	void initSystems();
 	void mainLoop();
 	void cleanup();
 	Entity addCamera();

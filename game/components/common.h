@@ -10,3 +10,6 @@ struct SpinComponent {
     float speed;
 };
 
+struct RainbowMaterial {
+    float speed;
+};

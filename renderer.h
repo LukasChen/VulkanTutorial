@@ -348,9 +348,9 @@ private:
 	vk::raii::ShaderModule createShaderModule(const std::vector<char>& code) const;
 	std::vector<const char*> getRequiredInstanceExtensions();
 
-	void createDefaultMaterial();
+	void createDefaultTexture();
 
 	size_t m_skyboxMeshHandle;
 	size_t m_skyboxMaterialHandle;
-	size_t m_defaultMaterialHandle;
+	TextureHandle m_defaultTextureHandle;
 };

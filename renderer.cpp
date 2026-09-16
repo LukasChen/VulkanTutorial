@@ -30,7 +30,7 @@ void Renderer::createMeshEntity(Entity entity) {
 		return;
 	}
 
-	size_t matHandle = meshrenderer ? meshrenderer->materialHandle : m_defaultMaterialHandle;
+	size_t matHandle = meshrenderer ? meshrenderer->materialHandle : m_resource.getDefaultMaterialHandle();
 	const InstanceBatchKey batchKey {
 		.meshHandle = mesh->meshHandle,
 		.meshRenderer = matHandle
@@ -83,17 +83,17 @@ size_t Renderer::uploadMesh(const Model& meshData) {
 }
 
 
-size_t Renderer::uploadTexture(const stbi_uc* pixels, int width, int height) {
+TextureHandle Renderer::uploadTexture(const stbi_uc* pixels, int width, int height) {
 	const vk::DeviceSize imageSize = static_cast<vk::DeviceSize>(width) * height * STBI_rgb_alpha;
 	return uploadTextureData(pixels, width, height, imageSize, vk::Format::eR8G8B8A8Srgb);
 }
 
-size_t Renderer::uploadHDRTexture(const float* pixels, int width, int height) {
+TextureHandle Renderer::uploadHDRTexture(const float* pixels, int width, int height) {
 	const vk::DeviceSize imageSize = static_cast<vk::DeviceSize>(width) * height * STBI_rgb_alpha * sizeof(float);
 	return uploadTextureData(pixels, width, height, imageSize, vk::Format::eR32G32B32A32Sfloat);
 }
 
-size_t Renderer::uploadTextureData(const void* pixels, int width, int height, vk::DeviceSize imageSize, vk::Format textureFormat) {
+TextureHandle Renderer::uploadTextureData(const void* pixels, int width, int height, vk::DeviceSize imageSize, vk::Format textureFormat) {
 	auto [stagingBuffer, stagingBufferMemory] =
 		createBuffer(imageSize, vk::BufferUsageFlagBits::eTransferSrc, vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent);
 
@@ -314,7 +314,7 @@ void Renderer::updateFrameResources(const Scene& scene) {
 		// Untextured entities are assigned the uploaded white default material
 		// when their batches are created, so they must use that same handle when
 		// writing instance data here.
-		const size_t matHandle = mat ? mat->materialHandle : m_defaultMaterialHandle;
+		const size_t matHandle = mat ? mat->materialHandle : m_resource.getDefaultMaterialHandle();
 		const InstanceBatchKey batchKey {
 			.meshHandle = mesh.meshHandle,
 			.meshRenderer = matHandle
@@ -454,7 +454,7 @@ void Renderer::initVulkan() {
 	createSyncObjects();
 
 	createSkybox();
-	createDefaultMaterial();
+	createDefaultTexture();
 }
 
 void Renderer::createFrameResources() {
@@ -1472,7 +1472,8 @@ void Renderer::recordCommandBuffer(uint32_t imageIndex) {
 	for (const auto& batch : m_instanceBatches) {
 		const auto& meshResource = m_meshResources[batch.meshHandle];
 		const auto& material = m_resource.getMaterial(batch.matHandle);
-		const auto& textureResource = m_textureResources.at(material.textureHandle);
+		const auto& textureResource =  material.textureHandle != INVALID_TEXTURE ? 
+			m_textureResources.at(material.textureHandle) : m_textureResources.at(m_defaultTextureHandle); 
 
 		commandBuffer.bindDescriptorSets(
 			vk::PipelineBindPoint::eGraphics,
@@ -1844,10 +1845,9 @@ vk::raii::ImageView Renderer::createImageView(
 	return vk::raii::ImageView(m_device, viewInfo);
 }
 
-void Renderer::createDefaultMaterial() {
+void Renderer::createDefaultTexture() {
 	const stbi_uc whitePixel[] = {255, 255, 255, 255};
-	const size_t textureHandle = uploadTexture(whitePixel, 1, 1);
-	m_defaultMaterialHandle = m_resource.createMaterial({textureHandle, glm::vec4(1.0f)});
+	m_defaultTextureHandle = uploadTexture(whitePixel, 1, 1);
 }
 
 vk::raii::ShaderModule Renderer::createShaderModule(const std::vector<char>& code) const {
