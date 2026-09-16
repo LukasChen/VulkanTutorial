@@ -20,6 +20,13 @@ struct VSInput {
     float3 instanceNormal2;
 };
 
+struct Material {
+    float4 baseColor;
+}
+
+[[vk::push_constant]]
+ConstantBuffer<Material> material;
+
 [[vk::binding(0, 0)]]
 ConstantBuffer<UniformBuffer> ubo;
 
@@ -113,6 +120,6 @@ float4 fragMain(V2F input) : SV_Target {
 
     float lit = ambient + (1.0f - ambient) * directLighting;
 
-    float4 color = lit * texture.Sample(input.texCoord);
+    float4 color = lit * texture.Sample(input.texCoord) * material.baseColor;
     return color;
 }

@@ -10,9 +10,10 @@ Engine::Engine(Registry& registry)
 	  m_glfwInitialized(true),
 	  m_registry(registry),
 	  m_transforms(m_registry),
-	  m_input(m_window),
 	  m_camera(addCamera()),
-	  m_renderer(m_window, m_registry) {
+	  m_resourceManager(),
+	  m_renderer(m_window, m_registry, m_resourceManager),
+	  m_input(m_window) {
 	initWindow();
 	BindSystem<CameraSystem>();
 

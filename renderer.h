@@ -33,6 +33,7 @@ import vulkan_hpp;
 #include "ecs/ecs.hpp"
 #include "scene.h"
 #include "primitive.h"
+#include "resourceManager.h"
 
 inline constexpr uint32_t WIDTH = 800;
 inline constexpr uint32_t HEIGHT = 600;
@@ -84,15 +85,14 @@ struct FrameUniformBufferObject {
 
 struct InstanceBatch {
 	size_t meshHandle;
-	size_t materialHandle;
-	Entity matEntity;
+	size_t matHandle;
 	uint32_t firstInstance;
 	uint32_t instanceCount;
 };
 
 struct InstanceBatchKey {
 	size_t meshHandle;
-	size_t materialHandle;
+	size_t meshRenderer;
 
 	bool operator==(const InstanceBatchKey&) const = default;
 };
@@ -100,7 +100,7 @@ struct InstanceBatchKey {
 struct InstanceBatchKeyHash {
 	size_t operator()(const InstanceBatchKey& key) const {
 		const size_t meshHash = std::hash<size_t>{}(key.meshHandle);
-		const size_t materialHash = std::hash<size_t>{}(key.materialHandle);
+		const size_t materialHash = std::hash<size_t>{}(key.meshRenderer);
 		return meshHash ^ (materialHash + 0x9e3779b97f4a7c15ull + (meshHash << 6) + (meshHash >> 2));
 	}
 };
@@ -159,6 +159,10 @@ struct TextureResources {
 	vk::raii::DescriptorSet descriptorSet;
 };
 
+struct MaterialPushConstants {
+	glm::vec4 baseColor;
+};
+
 enum class GraphicsPipelineId : size_t {
 	Mesh,
 	Skybox,
@@ -173,7 +177,7 @@ struct GraphicsPipelineResources {
 
 class Renderer {
 public:
-	Renderer(GLFWwindow* window, Registry& registry);
+	Renderer(GLFWwindow* window, Registry& registry, ResourceManager& resourceManager);
 	~Renderer();
 
 	void createMeshEntity(Entity entity);
@@ -212,8 +216,9 @@ private:
 	bool m_swapChainInitialized = false;
 
 	Registry& m_registry;
+	ResourceManager& m_resource;
 	std::vector<MeshResources> m_meshResources;
-	std::vector<TextureResources> m_matResources;
+	std::vector<TextureResources> m_textureResources;
 	std::vector<InstanceBatch> m_instanceBatches;
 	std::unordered_map<InstanceBatchKey, uint32_t, InstanceBatchKeyHash> m_instanceBatchToIndex;
 	size_t m_instanceCount = 0;

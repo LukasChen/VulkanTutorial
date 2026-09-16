@@ -12,9 +12,10 @@
 #include "components/components_common.h"
 #include "transformAccess.h"
 
-Renderer::Renderer(GLFWwindow* window, Registry& registry)
+Renderer::Renderer(GLFWwindow* window, Registry& registry, ResourceManager& resource)
 	: m_window(window),
-	  m_registry(registry) {
+	  m_registry(registry),
+	  m_resource(resource) {
 	initVulkan();
 }
 
@@ -24,15 +25,15 @@ Renderer::~Renderer() {
 
 void Renderer::createMeshEntity(Entity entity) {
 	const Mesh* mesh = m_registry.get<Mesh>().tryGet(entity);
-	const Material* mat = m_registry.get<Material>().tryGet(entity);
+	const MeshRenderer* meshrenderer = m_registry.get<MeshRenderer>().tryGet(entity);
 	if (mesh == nullptr) {
 		return;
 	}
 
-	size_t matHandle = mat ? mat->materialHandle : m_defaultMaterialHandle;
+	size_t matHandle = meshrenderer ? meshrenderer->materialHandle : m_defaultMaterialHandle;
 	const InstanceBatchKey batchKey {
 		.meshHandle = mesh->meshHandle,
-		.materialHandle = matHandle
+		.meshRenderer = matHandle
 	};
 	auto batchIt = m_instanceBatchToIndex.find(batchKey);
 	if (batchIt == m_instanceBatchToIndex.end()) {
@@ -40,7 +41,7 @@ void Renderer::createMeshEntity(Entity entity) {
 		batchIt = m_instanceBatchToIndex.emplace(batchKey, batchIndex).first;
 		m_instanceBatches.push_back({
 			.meshHandle = mesh->meshHandle,
-			.materialHandle = matHandle,
+			.matHandle = matHandle,
 			.firstInstance = static_cast<uint32_t>(m_instanceCount),
 			.instanceCount = 0
 		});
@@ -148,8 +149,8 @@ size_t Renderer::uploadTextureData(const void* pixels, int width, int height, vk
 
 	m_device.updateDescriptorSets(descriptorWrite, {});
 
-	m_matResources.push_back(std::move(material));
-	return m_matResources.size() - 1;
+	m_textureResources.push_back(std::move(material));
+	return m_textureResources.size() - 1;
 }
 
 void Renderer::rebuildInstanceBatches() {
@@ -308,7 +309,7 @@ void Renderer::updateFrameResources(const Scene& scene) {
 	auto view = m_registry.view<Transform, Mesh>();
 	for (auto it = view.begin(); it != view.end(); ++it) {
 		auto [transform, mesh] = *it;
-		const Material* mat = m_registry.get<Material>().tryGet(it.entity());
+		const MeshRenderer* mat = m_registry.get<MeshRenderer>().tryGet(it.entity());
 		// Keep the per-frame batch lookup consistent with createMeshEntity().
 		// Untextured entities are assigned the uploaded white default material
 		// when their batches are created, so they must use that same handle when
@@ -316,7 +317,7 @@ void Renderer::updateFrameResources(const Scene& scene) {
 		const size_t matHandle = mat ? mat->materialHandle : m_defaultMaterialHandle;
 		const InstanceBatchKey batchKey {
 			.meshHandle = mesh.meshHandle,
-			.materialHandle = matHandle
+			.meshRenderer = matHandle
 		};
 
 		const auto batchIt = m_instanceBatchToIndex.find(batchKey);
@@ -887,10 +888,19 @@ GraphicsPipelineResources Renderer::createGraphicsPipeline(
 		.pDynamicStates = dynamicStates.data()
 	};
 
+	constexpr vk::PushConstantRange materialPushConstantRange {
+		.stageFlags = vk::ShaderStageFlagBits::eFragment,
+		.offset = 0,
+		.size = sizeof(MaterialPushConstants)
+	};
+
 	vk::PipelineLayoutCreateInfo pipelineLayoutInfo{
 		.setLayoutCount = static_cast<uint32_t>(descriptorSetLayouts.size()),
-		.pSetLayouts = descriptorSetLayouts.data()
+		.pSetLayouts = descriptorSetLayouts.data(),
+		.pushConstantRangeCount = 1,
+		.pPushConstantRanges = &materialPushConstantRange
 	};
+
 	GraphicsPipelineResources pipelineResources{
 		.layout = vk::raii::PipelineLayout(m_device, pipelineLayoutInfo)
 	};
@@ -1461,14 +1471,27 @@ void Renderer::recordCommandBuffer(uint32_t imageIndex) {
 
 	for (const auto& batch : m_instanceBatches) {
 		const auto& meshResource = m_meshResources[batch.meshHandle];
-		const auto& materialResource = m_matResources.at(batch.materialHandle);
+		const auto& material = m_resource.getMaterial(batch.matHandle);
+		const auto& textureResource = m_textureResources.at(material.textureHandle);
 
 		commandBuffer.bindDescriptorSets(
 			vk::PipelineBindPoint::eGraphics,
 			meshPipeline.layout,
 			1,
-			*materialResource.descriptorSet,
+			*textureResource.descriptorSet,
 			nullptr
+		);
+
+		const MaterialPushConstants pushConstants {
+			.baseColor = material.baseColor
+		};
+
+		commandBuffer.pushConstants(
+			meshPipeline.layout,
+			vk::ShaderStageFlagBits::eFragment,
+			0,
+			sizeof(pushConstants),
+			&pushConstants
 		);
 
 		std::array vertexBuffers = {*meshResource.vertexBuffer, *frameResources.instanceBuffer};
@@ -1484,7 +1507,7 @@ void Renderer::recordCommandBuffer(uint32_t imageIndex) {
 	commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, *skyboxPipeline.pipeline);
 
 	const auto& skyboxMeshResource = m_meshResources.at(m_skyboxMeshHandle);
-	const auto& skyboxMatResource = m_matResources.at(m_skyboxMaterialHandle);
+	const auto& skyboxMatResource = m_textureResources.at(m_skyboxMaterialHandle);
 
 	commandBuffer.bindDescriptorSets(
 		vk::PipelineBindPoint::eGraphics,
@@ -1823,7 +1846,8 @@ vk::raii::ImageView Renderer::createImageView(
 
 void Renderer::createDefaultMaterial() {
 	const stbi_uc whitePixel[] = {255, 255, 255, 255};
-	m_defaultMaterialHandle = uploadTexture(whitePixel, 1, 1);
+	const size_t textureHandle = uploadTexture(whitePixel, 1, 1);
+	m_defaultMaterialHandle = m_resource.createMaterial({textureHandle, glm::vec4(1.0f)});
 }
 
 vk::raii::ShaderModule Renderer::createShaderModule(const std::vector<char>& code) const {

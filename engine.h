@@ -8,6 +8,7 @@
 #include "scene.h"
 #include "components/components_common.h"
 #include "transformAccess.h"
+#include "resourceManager.h"
 
 class Engine {
 public:
@@ -18,6 +19,7 @@ public:
 	inline Renderer* getRenderer() { return &m_renderer; }
 	inline Input* getInput() { return &m_input; }
 	inline TransformAccess* getTransforms() { return &m_transforms; }
+	inline ResourceManager* getResource() { return &m_resourceManager; }
 
 	template<typename T>
 	void BindSystem() {
@@ -38,6 +40,7 @@ private:
 	Entity m_camera;
 	Entity m_directionalLight;
 	Scene m_mainScene;
+	ResourceManager m_resourceManager;
 	Renderer m_renderer;
 	Input m_input;
 

@@ -15,6 +15,7 @@
 #include "model.h"
 #include "primitive.h"
 #include "components/components_common.h"
+#include "resourceManager.h"
 
 #include "game/components/common.h"
 #include "game/systems/sinAnimSystem.h"
@@ -33,7 +34,7 @@ Entity addMeshEntity(Registry& reg, Renderer* renderer, size_t meshHandle, size_
 
 	reg.get<Mesh>().addComponent(entity, Mesh(meshHandle));
 	if (matHandle != std::numeric_limits<size_t>::max()) {
-		reg.get<Material>().addComponent(entity, Material(matHandle));
+		reg.get<MeshRenderer>().addComponent(entity, MeshRenderer(matHandle));
 	}
 	renderer->createMeshEntity(entity);
 	return entity;
@@ -61,23 +62,26 @@ void loadScene(Registry& reg, Engine& engine) {
 	// Entity donut = addMeshEntity(meshData, reg, engine);
 	// reg.get<Transform>().get(donut).position = glm::vec3{0.0f, 0.0f, 0.0f};
 	Renderer* renderer = engine.getRenderer();
+	ResourceManager* resource = engine.getResource();
 
 	ImageInfo image = loadImage("../textures/viking_room.png");
 
-	size_t matHandle = renderer->uploadTexture(image.pixels, image.width, image.height);
+	size_t textureHandle = renderer->uploadTexture(image.pixels, image.width, image.height);
 	stbi_image_free(image.pixels);
 
 	Model boxMeshData("box.obj");
 	size_t boxMeshHandle = renderer->uploadMesh(boxMeshData);
-	Entity box = addMeshEntity(reg, renderer, boxMeshHandle, matHandle);
+	size_t materialHandle = resource->createMaterial({textureHandle, glm::vec4(1.0f, 0, 0, 1.0f)});
+
+	Entity box = addMeshEntity(reg, renderer, boxMeshHandle, materialHandle);
 	engine.addTransform(box, {glm::vec3(0.0f, 0.0f, 0.0f)});
 	reg.get<SinComponent>().addComponent(box, SinComponent{1.0f, 1.0f});
 	reg.get<SpinComponent>().addComponent(box, SpinComponent{1.0f});
 
-	Entity box2 = addMeshEntity(reg, renderer, boxMeshHandle, matHandle);
+	Entity box2 = addMeshEntity(reg, renderer, boxMeshHandle, materialHandle);
 	engine.addTransform(box2, {glm::vec3(2.0f, 0.0f, 0.0f)});
 
-	Entity box3 = addMeshEntity(reg,renderer, boxMeshHandle, matHandle);
+	Entity box3 = addMeshEntity(reg,renderer, boxMeshHandle, materialHandle);
 	engine.addTransform(box3, {glm::vec3(4.0f, 0.0f, 0.0f)}, box);
 
 	Model monkey("monkey.gltf", ModelLoaderType::GLTF);
@@ -89,19 +93,20 @@ void loadScene(Registry& reg, Engine& engine) {
 	size_t treeMeshHandle = renderer->uploadMesh(treeMeshData);
 
 	ImageInfo image2 = loadImage("tree-normal.jpg");
-	size_t treeMatHandle = renderer->uploadTexture(image2.pixels, image2.width, image2.height);
+	size_t treeTextureHandle = renderer->uploadTexture(image2.pixels, image2.width, image2.height);
+	size_t treeMaterialHandle = resource->createMaterial({treeTextureHandle, glm::vec4(1.0f)});
 	stbi_image_free(image2.pixels);
 
 	for (int i = 0; i < 10; i++) {
 		for (int j = 0; j < 10; j++) {
-			Entity tree = addMeshEntity(reg, renderer, treeMeshHandle, treeMatHandle);
+			Entity tree = addMeshEntity(reg, renderer, treeMeshHandle, treeMaterialHandle);
 			engine.addTransform(tree, {glm::vec3(-5.0f + i * 4.0f, 0.0f, j * 4.0f)});
 		}
 	}
 
 
 	size_t planeMeshHandle = renderer->uploadMesh(Primitive::createPlane());
-	Entity plane = addMeshEntity(reg, renderer, planeMeshHandle, matHandle);
+	Entity plane = addMeshEntity(reg, renderer, planeMeshHandle, materialHandle);
 	engine.addTransform(plane, {glm::vec3(0.0f, 0.0f, 0.0f)});
 	reg.get<Transform>(plane).scale = glm::vec3(10.0f, 1.0f, 10.0f);
 }

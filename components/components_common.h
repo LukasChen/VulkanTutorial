@@ -43,9 +43,8 @@ struct Mesh {
     size_t meshHandle;
 };
 
-struct Material {
+struct MeshRenderer {
     size_t materialHandle;
-    glm::vec3 baseColor{1.0f};
 };
 
 struct Camera {
