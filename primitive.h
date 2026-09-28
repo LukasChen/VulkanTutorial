@@ -16,15 +16,19 @@ public:
     static Model createPlane() {
         const glm::vec3 normal{0.0f, 1.0f, 0.0f};
 
-        Model plane({
+        Model plane;
+        
+        plane.mesh.vertices = {
             {{-0.5f, 0.0f, -0.5f}, normal, {0.0f, 0.0f}},
             {{ 0.5f, 0.0f, -0.5f}, normal, {1.0f, 0.0f}},
             {{ 0.5f, 0.0f,  0.5f}, normal, {1.0f, 1.0f}},
             {{-0.5f, 0.0f,  0.5f}, normal, {0.0f, 1.0f}},
-        }, {
+        };
+        
+        plane.mesh.indices = {
             0, 2, 1,
             2, 0, 3
-        });
+        };
         return plane;
     }
 
@@ -43,10 +47,10 @@ public:
             throw std::runtime_error("Sphere has too many vertices for uint16 indices");
         }
 
-        std::vector<Vertex> vertices;
-        std::vector<uint16_t> indices;
-        vertices.reserve(vertexCount);
-        indices.reserve(latitudeSegments * longitudeSegments * 6);
+        Model model;
+
+        model.mesh.vertices.reserve(vertexCount);
+        model.mesh.indices.reserve(latitudeSegments * longitudeSegments * 6);
 
         for (uint32_t lat = 0; lat <= latitudeSegments; lat++) {
             const float v = static_cast<float>(lat) / static_cast<float>(latitudeSegments);
@@ -65,7 +69,7 @@ public:
 
                 const glm::vec3 normal = inwardFacing ? -direction : direction;
                 const float texU = inwardFacing ? 1.0f - u : u;
-                vertices.emplace_back(direction * radius, normal, glm::vec2{texU, v});
+                model.mesh.vertices.emplace_back(direction * radius, normal, glm::vec2{texU, v});
             }
         }
 
@@ -77,19 +81,18 @@ public:
                 const uint16_t bottomRight = static_cast<uint16_t>(bottomLeft + 1);
 
                 if (inwardFacing) {
-                    indices.insert(indices.end(), {
+                    model.mesh.indices.insert(model.mesh.indices.end(), {
                         topLeft, topRight, bottomLeft,
                         topRight, bottomRight, bottomLeft
                     });
                 } else {
-                    indices.insert(indices.end(), {
+                    model.mesh.indices.insert(model.mesh.indices.end(), {
                         topLeft, bottomLeft, topRight,
                         topRight, bottomLeft, bottomRight
                     });
                 }
             }
         }
-
-        return Model(std::move(vertices), std::move(indices));
+        return model;
     }
 };

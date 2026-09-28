@@ -35,3 +35,41 @@ struct Vertex {
 		}};
 	}
 };
+
+
+struct SkinVertex {
+	glm::vec3 pos;
+	glm::vec3 normal;
+	glm::vec2 uv;
+};
+
+struct SkinJointIndices {
+	glm::uvec4 value;
+};
+
+struct SkinWeights {
+	glm::vec4 value;
+};
+
+static_assert(sizeof(SkinVertex) == 32);
+static_assert(sizeof(SkinJointIndices) == 16);
+static_assert(sizeof(SkinWeights) == 16);
+
+
+struct SkinOutputVertex {
+	static vk::VertexInputBindingDescription getBindingDescription() {
+		return {
+			.binding = 0,
+			.stride = sizeof(SkinVertex),
+			.inputRate = vk::VertexInputRate::eVertex
+		};
+	}
+
+	static std::array<vk::VertexInputAttributeDescription, 3> getAttributeDescriptions() {
+		return {{
+			{.location = 0, .binding = 0, .format = vk::Format::eR32G32B32Sfloat, .offset = offsetof(SkinVertex, pos)},
+			{.location = 1, .binding = 0, .format = vk::Format::eR32G32B32Sfloat, .offset = offsetof(SkinVertex, normal)},
+			{.location = 2, .binding = 0, .format = vk::Format::eR32G32Sfloat, .offset = offsetof(SkinVertex, uv)}
+		}};
+	}
+};

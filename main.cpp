@@ -30,25 +30,6 @@ struct ImageInfo {
 	int texChannels;
 };
 
-Entity addMeshEntity(Registry& reg, Renderer* renderer, size_t meshHandle, size_t matHandle = std::numeric_limits<size_t>::max()) {
-	Entity entity = reg.create();
-
-	reg.get<Mesh>().addComponent(entity, Mesh(meshHandle));
-	if (matHandle != std::numeric_limits<size_t>::max()) {
-		reg.get<MeshRenderer>().addComponent(entity, MeshRenderer(matHandle));
-	}
-	renderer->createMeshEntity(entity);
-	return entity;
-}
-
-void addDonuts(Registry& reg, Renderer* renderer, size_t meshHandle) {
-	for (int i = 0; i < 10; i++) {
-		Entity donut = addMeshEntity(reg, renderer, meshHandle);
-		reg.get<Transform>(donut).localPosition = glm::vec3{0.0f, 1.5f, i};
-		// reg.get<SinComponent>().addComponent(donut, SinComponent{1.0f, 1.0f});
-	}
-}
-
 ImageInfo loadImage(const std::string& path) {
 	int width, height, texChannels;
 	stbi_uc* pixels = stbi_load(path.c_str(), &width, &height, &texChannels, STBI_rgb_alpha);
@@ -70,28 +51,28 @@ void loadScene(Registry& reg, Engine& engine) {
 	size_t textureHandle = renderer->uploadTexture(image.pixels, image.width, image.height);
 	stbi_image_free(image.pixels);
 
-	Model boxMeshData("box.obj");
+	Model boxMeshData = resource->loadStaticModel("box.obj", ModelLoaderType::Obj);
 	size_t boxMeshHandle = renderer->uploadMesh(boxMeshData);
 	size_t materialHandle = resource->createMaterial({textureHandle, glm::vec4(1.0f, 0, 0, 1.0f)});
 
-	Entity box = addMeshEntity(reg, renderer, boxMeshHandle, materialHandle);
+	Entity box = engine.addMeshEntity(boxMeshHandle, materialHandle);
 	engine.addTransform(box, {glm::vec3(0.0f, 0.0f, 0.0f)});
 	reg.get<SinComponent>().addComponent(box, SinComponent{1.0f, 1.0f});
 	reg.get<SpinComponent>().addComponent(box, SpinComponent{1.0f});
 
-	Entity box2 = addMeshEntity(reg, renderer, boxMeshHandle, materialHandle);
+	Entity box2 = engine.addMeshEntity(boxMeshHandle, materialHandle);
 	engine.addTransform(box2, {glm::vec3(2.0f, 0.0f, 0.0f)});
 
-	Entity box3 = addMeshEntity(reg,renderer, boxMeshHandle, materialHandle);
+	Entity box3 = engine.addMeshEntity(boxMeshHandle, materialHandle);
 	engine.addTransform(box3, {glm::vec3(4.0f, 0.0f, 0.0f)}, box);
 
-	Model monkey("monkey.gltf", ModelLoaderType::GLTF);
+	Model monkey = resource->loadStaticModel("monkey.gltf", ModelLoaderType::GLTF);
 	size_t monkeyMeshHandle = renderer->uploadMesh(monkey);
 	MaterialHandle monkeyMaterialHandle = resource->createMaterial({INVALID_TEXTURE, glm::vec4(0.0f, 1.0f, 0, 1.0f)});
-	Entity monkeyEntity = addMeshEntity(reg, renderer, monkeyMeshHandle, monkeyMaterialHandle);
+	Entity monkeyEntity = engine.addMeshEntity(monkeyMeshHandle, monkeyMaterialHandle);
 	engine.addTransform(monkeyEntity, {glm::vec3(0.0f, 1.0f, -1.0f)});
 
-	Model treeMeshData("tree.obj");
+	Model treeMeshData = resource->loadStaticModel("tree.obj", ModelLoaderType::Obj);
 	size_t treeMeshHandle = renderer->uploadMesh(treeMeshData);
 
 	ImageInfo image2 = loadImage("tree-normal.jpg");
@@ -99,16 +80,16 @@ void loadScene(Registry& reg, Engine& engine) {
 	size_t treeMaterialHandle = resource->createMaterial({treeTextureHandle, glm::vec4(1.0f)});
 	stbi_image_free(image2.pixels);
 
-	for (int i = 0; i < 10; i++) {
+	for (int i = 0; i < 100; i++) {
 		for (int j = 0; j < 10; j++) {
-			Entity tree = addMeshEntity(reg, renderer, treeMeshHandle, treeMaterialHandle);
+			Entity tree = engine.addMeshEntity(treeMeshHandle, treeMaterialHandle);
 			engine.addTransform(tree, {glm::vec3(-5.0f + i * 4.0f, 0.0f, j * 4.0f)});
 		}
 	}
 
 
 	size_t planeMeshHandle = renderer->uploadMesh(Primitive::createPlane());
-	Entity plane = addMeshEntity(reg, renderer, planeMeshHandle, materialHandle);
+	Entity plane = engine.addMeshEntity(planeMeshHandle, materialHandle);
 	engine.addTransform(plane, {glm::vec3(0.0f, 0.0f, 0.0f)});
 	reg.get<Transform>(plane).scale = glm::vec3(10.0f, 1.0f, 10.0f);
 	reg.get<RainbowMaterial>().addComponent(plane, RainbowMaterial{1.0f});
@@ -116,7 +97,6 @@ void loadScene(Registry& reg, Engine& engine) {
 
 int main() {
 	try {
-
 		Registry reg;
 
 		Engine app(reg);

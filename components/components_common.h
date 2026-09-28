@@ -39,12 +39,15 @@ struct Transform {
     }
 };
 
-struct Mesh {
+struct MeshRenderer {
     size_t meshHandle;
+    size_t matHandle;
 };
 
-struct MeshRenderer {
-    size_t materialHandle;
+struct SkinMeshRenderer {
+    size_t skinMeshHandle;
+    size_t matHandle;
+    size_t skinResourceHandle;
 };
 
 struct Camera {

@@ -24,16 +24,14 @@ Renderer::~Renderer() {
 }
 
 void Renderer::createMeshEntity(Entity entity) {
-	const Mesh* mesh = m_registry.get<Mesh>().tryGet(entity);
-	const MeshRenderer* meshrenderer = m_registry.get<MeshRenderer>().tryGet(entity);
+	const MeshRenderer* mesh = m_registry.get<MeshRenderer>().tryGet(entity);
 	if (mesh == nullptr) {
 		return;
 	}
 
-	size_t matHandle = meshrenderer ? meshrenderer->materialHandle : m_resource.getDefaultMaterialHandle();
 	const InstanceBatchKey batchKey {
 		.meshHandle = mesh->meshHandle,
-		.meshRenderer = matHandle
+		.meshRenderer = mesh->matHandle
 	};
 	auto batchIt = m_instanceBatchToIndex.find(batchKey);
 	if (batchIt == m_instanceBatchToIndex.end()) {
@@ -41,7 +39,7 @@ void Renderer::createMeshEntity(Entity entity) {
 		batchIt = m_instanceBatchToIndex.emplace(batchKey, batchIndex).first;
 		m_instanceBatches.push_back({
 			.meshHandle = mesh->meshHandle,
-			.matHandle = matHandle,
+			.matHandle = mesh->matHandle,
 			.firstInstance = static_cast<uint32_t>(m_instanceCount),
 			.instanceCount = 0
 		});
@@ -56,18 +54,147 @@ void Renderer::createMeshEntity(Entity entity) {
 	}
 }
 
-size_t Renderer::uploadMesh(const Model& meshData) {
-	const vk::DeviceSize vertexBufferSize = meshData.vertices.size() * sizeof(Vertex);
+void Renderer::createSkinMeshEntity(Entity entity) {
+	SkinMeshRenderer* skinMeshRend = m_registry.get<SkinMeshRenderer>().tryGet(entity);
+
+	if (skinMeshRend == nullptr) {
+		return;
+	}
+
+	const SkinMeshResources& skinMesh = m_skinMeshes[skinMeshRend->skinMeshHandle];
+
+	skinMeshRend->skinResourceHandle = m_skinResourceCount++;
+	m_instanceCount++;
+
+	for (FrameData& frame : m_frames) {
+		SkinFrameResource frameResource = createSkinFrameResource(skinMesh);
+		createSkinDescriptorSet(frameResource, skinMesh);
+
+		// Mock Anim data
+		std::vector<glm::mat4> jointMatrices(skinMesh.jointCount, glm::mat4(1.0f));
+		std::memcpy(frameResource.jointMatrixMapped, jointMatrices.data(), jointMatrices.size() * sizeof(glm::mat4));
+
+		frame.resources.skinInstances.push_back(std::move(frameResource));
+	}
+}
+
+SkinFrameResource Renderer::createSkinFrameResource(const SkinMeshResources& skinMesh) {
+	SkinFrameResource skinFrame;
+
+	const vk::DeviceSize outputSize = skinMesh.vertexCount * sizeof(Vertex);
+
+	std::tie(skinFrame.outputVertexBuffer, skinFrame.outputVertexMemory) = createBuffer(
+		outputSize,
+		vk::BufferUsageFlagBits::eStorageBuffer | vk::BufferUsageFlagBits::eVertexBuffer,
+		vk::MemoryPropertyFlagBits::eDeviceLocal
+	);
+
+	const vk::DeviceSize jointMatrixSize = skinMesh.jointCount * sizeof(glm::mat4);
+	std::tie(skinFrame.jointMatrixBuffer, skinFrame.jointMatrixMemory) = createBuffer(
+		jointMatrixSize,
+		vk::BufferUsageFlagBits::eStorageBuffer,
+		vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent
+	);
+
+	skinFrame.jointMatrixMapped = skinFrame.jointMatrixMemory.mapMemory(0, jointMatrixSize);
+
+	return skinFrame;
+}
+
+void Renderer::createSkinDescriptorSet(SkinFrameResource& frame, const SkinMeshResources& mesh) {
+	vk::DescriptorSetAllocateInfo allocInfo {
+		.descriptorPool = m_descriptorPool,
+		.descriptorSetCount = 1,
+		.pSetLayouts = &*m_skinDescriptorSetLayout
+	};
+
+	auto descriptorSets = m_device.allocateDescriptorSets(allocInfo);
+	frame.descriptorSet = std::move(descriptorSets.front());
+
+	vk::DescriptorBufferInfo inputVertexInfo {
+		.buffer = mesh.inputVertexBuffer,
+		.offset = 0,
+		.range = mesh.vertexCount * sizeof(Vertex)
+	};
+
+	vk::DescriptorBufferInfo outputVertexInfo {
+		.buffer = frame.outputVertexBuffer,
+		.offset = 0,
+		.range = mesh.vertexCount * sizeof(Vertex)
+	};
+
+	vk::DescriptorBufferInfo jointMatrixInfo {
+		.buffer = frame.jointMatrixBuffer,
+		.offset = 0,
+		.range = mesh.jointCount * sizeof(glm::mat4)
+	};
+
+	vk::DescriptorBufferInfo jointIndexInfo {
+		.buffer = mesh.jointIndexBuffer,
+		.offset = 0,
+		.range = mesh.vertexCount * sizeof(glm::uvec4)
+	};
+
+	vk::DescriptorBufferInfo weightInfo {
+		.buffer = mesh.weightBuffer,
+		.offset = 0,
+		.range = mesh.vertexCount * sizeof(glm::vec4)
+	};
+
+	std::array<vk::WriteDescriptorSet, 5> writes = {{
+		{
+			.dstSet = frame.descriptorSet,
+			.dstBinding = 0,
+			.descriptorCount = 1,
+			.descriptorType = vk::DescriptorType::eStorageBuffer,
+			.pBufferInfo = &inputVertexInfo
+		},
+		{
+			.dstSet = frame.descriptorSet,
+			.dstBinding = 1,
+			.descriptorCount = 1,
+			.descriptorType = vk::DescriptorType::eStorageBuffer,
+			.pBufferInfo = &outputVertexInfo
+		},
+		{
+			.dstSet = frame.descriptorSet,
+			.dstBinding = 2,
+			.descriptorCount = 1,
+			.descriptorType = vk::DescriptorType::eStorageBuffer,
+			.pBufferInfo = &jointMatrixInfo
+		},
+		{
+			.dstSet = frame.descriptorSet,
+			.dstBinding = 3,
+			.descriptorCount = 1,
+			.descriptorType = vk::DescriptorType::eStorageBuffer,
+			.pBufferInfo = &jointIndexInfo
+		},
+		{
+			.dstSet = frame.descriptorSet,
+			.dstBinding = 4,
+			.descriptorCount = 1,
+			.descriptorType = vk::DescriptorType::eStorageBuffer,
+			.pBufferInfo = &weightInfo
+		}
+	}};
+
+	m_device.updateDescriptorSets(writes, {});
+}
+
+size_t Renderer::uploadMesh(const Model& model) {
+	const Mesh& mesh = model.mesh;
+	const vk::DeviceSize vertexBufferSize = mesh.vertices.size() * sizeof(Vertex);
 	auto [vertexBuffer, vertexBufferMemory] = createMeshBuffer(
 		vertexBufferSize,
-		meshData.vertices.data(),
+		mesh.vertices.data(),
 		vk::BufferUsageFlagBits::eVertexBuffer
 	);
 
-	const vk::DeviceSize indexBufferSize = meshData.indices.size() * sizeof(uint16_t);
+	const vk::DeviceSize indexBufferSize = mesh.indices.size() * sizeof(uint16_t);
 	auto [indexBuffer, indexBufferMemory] = createMeshBuffer(
 		indexBufferSize,
-		meshData.indices.data(),
+		mesh.indices.data(),
 		vk::BufferUsageFlagBits::eIndexBuffer
 	);
 
@@ -76,10 +203,63 @@ size_t Renderer::uploadMesh(const Model& meshData) {
 		std::move(vertexBufferMemory),
 		std::move(indexBuffer),
 		std::move(indexBufferMemory),
-		static_cast<uint16_t>(meshData.indices.size())
+		static_cast<uint16_t>(mesh.indices.size())
 	);
 
 	return m_meshResources.size() - 1;
+}
+
+size_t Renderer::uploadSkinnedMesh(const Model& model) {
+	if (!model.isSkinned()) {
+		return -1;
+	}
+
+	const Mesh& mesh = model.mesh;
+	const vk::DeviceSize vertexBufferSize = mesh.vertices.size() * sizeof(Vertex);
+	auto [vertexBuffer, vertexBufferMemory] = createMeshBuffer(
+		vertexBufferSize,
+		mesh.vertices.data(),
+		vk::BufferUsageFlagBits::eStorageBuffer
+	);
+
+	const vk::DeviceSize indexBufferSize = mesh.indices.size() * sizeof(uint16_t);
+	auto [indexBuffer, indexBufferMemory] = createMeshBuffer(
+		indexBufferSize,
+		mesh.indices.data(),
+		vk::BufferUsageFlagBits::eIndexBuffer
+	);
+
+	const vk::DeviceSize weightBufferSize = model.skinning->weights.size() * sizeof(glm::vec4);
+	auto [weightBuffer, weightBufferMemory] = createMeshBuffer(
+		weightBufferSize,
+		model.skinning->weights.data(),
+		vk::BufferUsageFlagBits::eStorageBuffer
+	);
+
+	const vk::DeviceSize jointIndexBufferSize = model.skinning->jointIndices.size() * sizeof(glm::uvec4);
+	auto [jointIndexBuffer, jointIndexBufferMemory] = createMeshBuffer(
+		jointIndexBufferSize,
+		model.skinning->jointIndices.data(),
+		vk::BufferUsageFlagBits::eStorageBuffer
+	);
+
+	SkinMeshResources skinMesh {
+		.inputVertexBuffer = std::move(vertexBuffer),
+		.inputVertexMemory = std::move(vertexBufferMemory),
+		.jointIndexBuffer = std::move(jointIndexBuffer),
+		.jointIndexMemory = std::move(jointIndexBufferMemory),
+		.weightBuffer = std::move(weightBuffer),
+		.weightMemory = std::move(weightBufferMemory),
+		.indexBuffer = std::move(indexBuffer),
+		.indexMemory = std::move(indexBufferMemory),
+		.vertexCount = static_cast<uint16_t>(mesh.vertices.size()),
+		.indexCount = static_cast<uint16_t>(mesh.indices.size()),
+		.jointCount = static_cast<uint32_t>(model.skeleton->joints.size()),
+	};
+
+	m_skinMeshes.push_back(std::move(skinMesh));
+
+	return m_skinMeshes.size() - 1;
 }
 
 
@@ -158,7 +338,7 @@ void Renderer::rebuildInstanceBatches() {
 	m_instanceBatchToIndex.clear();
 	m_instanceCount = 0;
 
-	auto view = m_registry.view<Transform, Mesh>();
+	auto view = m_registry.view<Transform, MeshRenderer>();
 	for (auto it = view.begin(); it != view.end(); ++it) {
 		createMeshEntity(it.entity());
 	}
@@ -306,18 +486,17 @@ void Renderer::updateFrameResources(const Scene& scene) {
 	std::vector<uint32_t> instanceWriteOffsets(m_instanceBatches.size(), 0);
 
 	InstanceData* instances = static_cast<InstanceData*>(frameResources.instanceBufferMapped);
-	auto view = m_registry.view<Transform, Mesh>();
+	auto view = m_registry.view<Transform, MeshRenderer>();
 	for (auto it = view.begin(); it != view.end(); ++it) {
 		auto [transform, mesh] = *it;
-		const MeshRenderer* mat = m_registry.get<MeshRenderer>().tryGet(it.entity());
+		const MeshRenderer* meshRend = m_registry.get<MeshRenderer>().tryGet(it.entity());
 		// Keep the per-frame batch lookup consistent with createMeshEntity().
 		// Untextured entities are assigned the uploaded white default material
 		// when their batches are created, so they must use that same handle when
 		// writing instance data here.
-		const size_t matHandle = mat ? mat->materialHandle : m_resource.getDefaultMaterialHandle();
 		const InstanceBatchKey batchKey {
-			.meshHandle = mesh.meshHandle,
-			.meshRenderer = matHandle
+			.meshHandle = meshRend->meshHandle,
+			.meshRenderer = meshRend->matHandle
 		};
 
 		const auto batchIt = m_instanceBatchToIndex.find(batchKey);
@@ -343,6 +522,20 @@ void Renderer::updateFrameResources(const Scene& scene) {
 
 		const glm::mat3 normalMatrix = glm::transpose(glm::inverse(glm::mat3(model)));
 		instances[instanceIndex] = {model, normalMatrix};
+	}
+
+
+	auto skinView = m_registry.view<Transform, SkinMeshRenderer>();
+	uint32_t skinInstanceIndex = m_instanceBatches.size();
+
+	for (auto it = skinView.begin(); it != skinView.end(); ++it) {
+		auto [transform, skinMesh] = *it;
+
+		const glm::mat4 model = transforms.matrix(it.entity());
+		const glm::mat3 normalMatrix = glm::transpose(glm::inverse(glm::mat3(model)));
+
+		instances[skinInstanceIndex] = {model, normalMatrix};
+		skinInstanceIndex++;
 	}
 }
 
@@ -442,6 +635,7 @@ void Renderer::initVulkan() {
 	createSwapChain();
 	createDescriptorSetLayout();
 	createGraphicsPipelines();
+	createSkinPipeline();
 	createCommandPool();
 	// createTextureImage();
 	// createTextureImageView();
@@ -797,6 +991,81 @@ void Renderer::createGraphicsPipelines() {
 	);
 }
 
+void Renderer::createSkinPipeline() {
+	const std::array<vk::DescriptorSetLayoutBinding, 5> bindings {{
+		{
+			.binding = 0,
+			.descriptorType = vk::DescriptorType::eStorageBuffer,
+			.descriptorCount = 1,
+			.stageFlags = vk::ShaderStageFlagBits::eCompute
+		},
+		{
+			.binding = 1,
+			.descriptorType = vk::DescriptorType::eStorageBuffer,
+			.descriptorCount = 1,
+			.stageFlags = vk::ShaderStageFlagBits::eCompute
+		},
+		{
+			.binding = 2,
+			.descriptorType = vk::DescriptorType::eStorageBuffer,
+			.descriptorCount = 1,
+			.stageFlags = vk::ShaderStageFlagBits::eCompute
+		}, 
+		{
+			.binding = 3,
+			.descriptorType = vk::DescriptorType::eStorageBuffer,
+			.descriptorCount = 1,
+			.stageFlags = vk::ShaderStageFlagBits::eCompute
+		}, 
+		{
+			.binding = 4,
+			.descriptorType = vk::DescriptorType::eStorageBuffer,
+			.descriptorCount = 1,
+			.stageFlags = vk::ShaderStageFlagBits::eCompute
+		}
+	}};
+
+	const vk::DescriptorSetLayoutCreateInfo descriptorSetLayoutInfo {
+		.bindingCount = static_cast<uint32_t>(bindings.size()),
+		.pBindings = bindings.data()
+	};
+
+	m_skinDescriptorSetLayout = m_device.createDescriptorSetLayout(descriptorSetLayoutInfo);
+
+	const vk::PushConstantRange pushConstantRange {
+		.stageFlags = vk::ShaderStageFlagBits::eCompute,
+		.offset = 0,
+		.size = sizeof(SkinPushConstants)
+	};
+
+	const vk::PipelineLayoutCreateInfo pipelineLayoutInfo {
+		.setLayoutCount = 1,
+		.pSetLayouts = &*m_skinDescriptorSetLayout,
+		.pushConstantRangeCount = 1,
+		.pPushConstantRanges = &pushConstantRange
+	};
+
+
+	m_skinPipeline.layout = m_device.createPipelineLayout(pipelineLayoutInfo);
+
+	// Skin Compute Shader
+	std::vector<char> skinShaderCode = readFile("shaders/skin.spv");
+	vk::raii::ShaderModule skinShaderModule = createShaderModule(skinShaderCode);
+
+	const vk::PipelineShaderStageCreateInfo skinShaderStage {
+		.stage = vk::ShaderStageFlagBits::eCompute,
+		.module = skinShaderModule,
+		.pName = "main"
+	};
+
+	const vk::ComputePipelineCreateInfo pipelineInfo {
+		.stage = skinShaderStage,
+		.layout = *m_skinPipeline.layout
+	};
+
+	m_skinPipeline.pipeline = vk::raii::Pipeline(m_device, nullptr, pipelineInfo);
+}
+
 void Renderer::createShadowResources() {
 	vk::Format shadowFormat = findShadowFormat();
 	for (auto& frame : m_frames) {
@@ -1108,7 +1377,7 @@ std::pair<vk::raii::Buffer, vk::raii::DeviceMemory> Renderer::createMeshBuffer(
 }
 
 void Renderer::createDescriptorPool() {
-	std::array<vk::DescriptorPoolSize, 2> poolSizes = {{
+	std::array<vk::DescriptorPoolSize, 3> poolSizes = {{
 		{
 			.type = vk::DescriptorType::eUniformBuffer,
 			.descriptorCount = MAX_ENTITY_COUNT
@@ -1116,6 +1385,10 @@ void Renderer::createDescriptorPool() {
 		{
 			.type = vk::DescriptorType::eCombinedImageSampler,
 			.descriptorCount = MAX_ENTITY_COUNT
+		},
+		{
+			.type = vk::DescriptorType::eStorageBuffer,
+			.descriptorCount = MAX_ENTITY_COUNT * MAX_FRAMES_IN_FLIGHT
 		}
 	}};
 
@@ -1305,98 +1578,10 @@ void Renderer::recordCommandBuffer(uint32_t imageIndex) {
 	commandBuffer.begin({});
 
 	auto& frameResources = currentFrame().resources;
-	auto& shadow = frameResources.shadow;
 
-	vk::AccessFlags2 shadowSourceAccess = shadow.layout == vk::ImageLayout::eUndefined ?
-		vk::AccessFlagBits2::eNone : vk::AccessFlagBits2::eShaderSampledRead;
-	vk::PipelineStageFlags2 shadowSourceStage = shadow.layout == vk::ImageLayout::eUndefined ?
-		vk::PipelineStageFlagBits2::eTopOfPipe : vk::PipelineStageFlagBits2::eFragmentShader;
+	recordSkinningDispatches(commandBuffer, frameResources.skinInstances);
 
-	
-	transition_image_layout(
-		*shadow.image,
-		shadow.layout,
-		vk::ImageLayout::eDepthAttachmentOptimal,
-		shadowSourceAccess,
-		vk::AccessFlagBits2::eDepthStencilAttachmentWrite,
-		shadowSourceStage,
-		vk::PipelineStageFlagBits2::eEarlyFragmentTests | vk::PipelineStageFlagBits2::eLateFragmentTests,
-		vk::ImageAspectFlagBits::eDepth
-	);
-
-	const vk::ClearValue shadowClear = vk::ClearDepthStencilValue(1.0f, 0.0f);
-
-	vk::RenderingAttachmentInfo shadowDepthAttachment = {
-		.imageView = shadow.view,
-		.imageLayout = vk::ImageLayout::eDepthAttachmentOptimal,
-		.loadOp = vk::AttachmentLoadOp::eClear,
-		.storeOp = vk::AttachmentStoreOp::eStore,
-		.clearValue = shadowClear
-	};
-
-	vk::RenderingInfo shadowRenderingInfo{
-		.renderArea = {
-			.offset = {0,0},
-			.extent = {
-				SHADOW_MAP_SIZE,
-				SHADOW_MAP_SIZE
-			}
-		},
-		.layerCount = 1,
-		.colorAttachmentCount = 0,
-		.pColorAttachments = nullptr,
-		.pDepthAttachment = &shadowDepthAttachment
-	};
-
-	commandBuffer.beginRendering(shadowRenderingInfo);
-	const auto& shadowPipeline = m_graphicsPipelines[static_cast<size_t>(GraphicsPipelineId::Shadow)];
-
-	commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, *shadowPipeline.pipeline);
-	commandBuffer.setViewport(0, vk::Viewport(0, 0, SHADOW_MAP_SIZE, SHADOW_MAP_SIZE, 0, 1));
-	commandBuffer.setScissor(
-		0,
-		vk::Rect2D(
-			{0, 0},
-			{SHADOW_MAP_SIZE, SHADOW_MAP_SIZE}
-		)
-	);
-	commandBuffer.setDepthBias(1.25f, 0.0f, 1.75f);
-
-	commandBuffer.bindDescriptorSets(
-		vk::PipelineBindPoint::eGraphics,
-		*shadowPipeline.layout,
-		0,
-		*frameResources.descriptorSet,
-		nullptr
-	);
-
-	for(const auto& batch : m_instanceBatches) {
-		const auto& meshResource = m_meshResources[batch.meshHandle];
-
-		std::array vertexBuffers = {*meshResource.vertexBuffer, *frameResources.instanceBuffer};
-
-		commandBuffer.bindVertexBuffers(0, vertexBuffers, {0,0});
-
-		commandBuffer.bindIndexBuffer(meshResource.indexBuffer, 0, vk::IndexType::eUint16);
-
-		commandBuffer.drawIndexed(meshResource.indiceSize, batch.instanceCount, 0, 0, batch.firstInstance);
-	}
-
-	commandBuffer.endRendering();
-
-	transition_image_layout(
-		*shadow.image,
-		vk::ImageLayout::eDepthAttachmentOptimal,
-		vk::ImageLayout::eDepthReadOnlyOptimal,
-		vk::AccessFlagBits2::eDepthStencilAttachmentWrite,
-		vk::AccessFlagBits2::eShaderSampledRead,
-		vk::PipelineStageFlagBits2::eEarlyFragmentTests | vk::PipelineStageFlagBits2::eLateFragmentTests,
-		vk::PipelineStageFlagBits2::eFragmentShader,
-		vk::ImageAspectFlagBits::eDepth
-	);
-
-	shadow.layout = vk::ImageLayout::eDepthReadOnlyOptimal;
-
+	recordShadowPass(commandBuffer, frameResources);
 
 	transition_image_layout(
 		swapchainData.image,
@@ -1501,6 +1686,8 @@ void Renderer::recordCommandBuffer(uint32_t imageIndex) {
 		commandBuffer.bindIndexBuffer(*meshResource.indexBuffer, 0, vk::IndexType::eUint16);
 		commandBuffer.drawIndexed(meshResource.indiceSize, batch.instanceCount, 0, 0, batch.firstInstance);
 	}
+
+	recordSkinMeshPass(commandBuffer, frameResources);
 
 	// Skybox rendering
 
@@ -1615,6 +1802,202 @@ void Renderer::transitionImageLayout(vk::raii::CommandBuffer& commandBuffer, con
 	}
 
 	commandBuffer.pipelineBarrier(sourceStage, destStage, {}, nullptr, nullptr, barrier);
+}
+
+void Renderer::recordSkinningDispatches(const vk::raii::CommandBuffer& commandBuffer, std::span<const SkinFrameResource> frameSkins) {
+	commandBuffer.bindPipeline(vk::PipelineBindPoint::eCompute, *m_skinPipeline.pipeline);
+
+	auto view = m_registry.get<SkinMeshRenderer>();
+
+	for (int i = 0; i < view.data.size(); i++) {
+		const SkinMeshRenderer& skinMeshRenderer = view.getByIndex(i);
+
+		const SkinMeshResources& mesh = m_skinMeshes[skinMeshRenderer.skinMeshHandle];
+
+		const SkinFrameResource& frame = frameSkins[skinMeshRenderer.skinResourceHandle];
+
+		commandBuffer.bindDescriptorSets(
+			vk::PipelineBindPoint::eCompute,
+			*m_skinPipeline.layout,
+			0,
+			*frame.descriptorSet,
+			nullptr
+		);
+
+
+		SkinPushConstants constants {
+			.vertexCount = mesh.vertexCount
+		};
+
+		commandBuffer.pushConstants(
+			*m_skinPipeline.layout,
+			vk::ShaderStageFlagBits::eCompute,
+			0,
+			sizeof(constants),
+			&constants
+		);
+
+		const uint32_t groupCount = (mesh.vertexCount + 63) / 64;
+
+		commandBuffer.dispatch(groupCount, 1, 1);
+	}
+
+	const vk::MemoryBarrier2 barrier {
+		.srcStageMask = vk::PipelineStageFlagBits2::eComputeShader,
+		.srcAccessMask = vk::AccessFlagBits2::eShaderWrite,
+		.dstStageMask = vk::PipelineStageFlagBits2::eVertexInput,
+		.dstAccessMask = vk::AccessFlagBits2::eVertexAttributeRead
+	};
+
+	const vk::DependencyInfo dependencyInfo {
+		.memoryBarrierCount = 1,
+		.pMemoryBarriers = &barrier
+	};
+
+	commandBuffer.pipelineBarrier2(dependencyInfo);
+}
+
+void Renderer::recordShadowPass(const vk::raii::CommandBuffer& commandBuffer, FrameResources& frameResources) {
+
+	ShadowResources& shadow = frameResources.shadow;
+
+	vk::AccessFlags2 shadowSourceAccess = shadow.layout == vk::ImageLayout::eUndefined ?
+		vk::AccessFlagBits2::eNone : vk::AccessFlagBits2::eShaderSampledRead;
+	vk::PipelineStageFlags2 shadowSourceStage = shadow.layout == vk::ImageLayout::eUndefined ?
+		vk::PipelineStageFlagBits2::eTopOfPipe : vk::PipelineStageFlagBits2::eFragmentShader;
+
+	
+	transition_image_layout(
+		*shadow.image,
+		shadow.layout,
+		vk::ImageLayout::eDepthAttachmentOptimal,
+		shadowSourceAccess,
+		vk::AccessFlagBits2::eDepthStencilAttachmentWrite,
+		shadowSourceStage,
+		vk::PipelineStageFlagBits2::eEarlyFragmentTests | vk::PipelineStageFlagBits2::eLateFragmentTests,
+		vk::ImageAspectFlagBits::eDepth
+	);
+
+	const vk::ClearValue shadowClear = vk::ClearDepthStencilValue(1.0f, 0.0f);
+
+	vk::RenderingAttachmentInfo shadowDepthAttachment = {
+		.imageView = shadow.view,
+		.imageLayout = vk::ImageLayout::eDepthAttachmentOptimal,
+		.loadOp = vk::AttachmentLoadOp::eClear,
+		.storeOp = vk::AttachmentStoreOp::eStore,
+		.clearValue = shadowClear
+	};
+
+	vk::RenderingInfo shadowRenderingInfo{
+		.renderArea = {
+			.offset = {0,0},
+			.extent = {
+				SHADOW_MAP_SIZE,
+				SHADOW_MAP_SIZE
+			}
+		},
+		.layerCount = 1,
+		.colorAttachmentCount = 0,
+		.pColorAttachments = nullptr,
+		.pDepthAttachment = &shadowDepthAttachment
+	};
+
+	commandBuffer.beginRendering(shadowRenderingInfo);
+	const auto& shadowPipeline = m_graphicsPipelines[static_cast<size_t>(GraphicsPipelineId::Shadow)];
+
+	commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, *shadowPipeline.pipeline);
+	commandBuffer.setViewport(0, vk::Viewport(0, 0, SHADOW_MAP_SIZE, SHADOW_MAP_SIZE, 0, 1));
+	commandBuffer.setScissor(
+		0,
+		vk::Rect2D(
+			{0, 0},
+			{SHADOW_MAP_SIZE, SHADOW_MAP_SIZE}
+		)
+	);
+	commandBuffer.setDepthBias(1.25f, 0.0f, 1.75f);
+
+	commandBuffer.bindDescriptorSets(
+		vk::PipelineBindPoint::eGraphics,
+		*shadowPipeline.layout,
+		0,
+		*frameResources.descriptorSet,
+		nullptr
+	);
+
+	for(const auto& batch : m_instanceBatches) {
+		const auto& meshResource = m_meshResources[batch.meshHandle];
+
+		std::array vertexBuffers = {*meshResource.vertexBuffer, *frameResources.instanceBuffer};
+
+		commandBuffer.bindVertexBuffers(0, vertexBuffers, {0,0});
+
+		commandBuffer.bindIndexBuffer(meshResource.indexBuffer, 0, vk::IndexType::eUint16);
+
+		commandBuffer.drawIndexed(meshResource.indiceSize, batch.instanceCount, 0, 0, batch.firstInstance);
+	}
+
+	commandBuffer.endRendering();
+
+	transition_image_layout(
+		*shadow.image,
+		vk::ImageLayout::eDepthAttachmentOptimal,
+		vk::ImageLayout::eDepthReadOnlyOptimal,
+		vk::AccessFlagBits2::eDepthStencilAttachmentWrite,
+		vk::AccessFlagBits2::eShaderSampledRead,
+		vk::PipelineStageFlagBits2::eEarlyFragmentTests | vk::PipelineStageFlagBits2::eLateFragmentTests,
+		vk::PipelineStageFlagBits2::eFragmentShader,
+		vk::ImageAspectFlagBits::eDepth
+	);
+
+	shadow.layout = vk::ImageLayout::eDepthReadOnlyOptimal;
+}
+
+void Renderer::recordSkinMeshPass(const vk::raii::CommandBuffer& commandBuffer, FrameResources& frameResources) {
+	const auto& meshPipeline = m_graphicsPipelines[static_cast<size_t>(GraphicsPipelineId::Mesh)];
+
+	auto skinView = m_registry.view<SkinMeshRenderer, Transform>();
+
+	uint32_t firstInstance = m_instanceBatches.size();
+	for (auto [skinMeshRenderer, Transform] : skinView) {
+		const SkinMeshResources& mesh = m_skinMeshes[skinMeshRenderer.skinMeshHandle];
+		const SkinFrameResource& skinFrame = frameResources.skinInstances[skinMeshRenderer.skinResourceHandle];
+
+		const auto& material = m_resource.getMaterial(skinMeshRenderer.matHandle);
+		const auto& textureResource =  material.textureHandle != INVALID_TEXTURE ? 
+			m_textureResources.at(material.textureHandle) : m_textureResources.at(m_defaultTextureHandle); 
+
+		commandBuffer.bindDescriptorSets(
+			vk::PipelineBindPoint::eGraphics,
+			meshPipeline.layout,
+			1,
+			*textureResource.descriptorSet,
+			nullptr
+		);
+
+		const MaterialPushConstants pushConstants {
+			.baseColor = material.baseColor
+		};
+
+		commandBuffer.pushConstants(
+			meshPipeline.layout,
+			vk::ShaderStageFlagBits::eFragment,
+			0,
+			sizeof(pushConstants),
+			&pushConstants
+		);
+
+		std::array vertexBuffers = {*skinFrame.outputVertexBuffer, *frameResources.instanceBuffer};
+
+		commandBuffer.bindVertexBuffers(
+			0,
+			vertexBuffers,
+			std::array<vk::DeviceSize, 2>{0,0}
+		);
+		commandBuffer.bindIndexBuffer(*mesh.indexBuffer, 0, vk::IndexType::eUint16);
+
+		commandBuffer.drawIndexed(mesh.indexCount, 1, 0, 0, firstInstance);
+		firstInstance++;
+	}
 }
 
 std::pair<vk::raii::Buffer, vk::raii::DeviceMemory> Renderer::createBuffer(
@@ -1757,7 +2140,7 @@ uint32_t Renderer::chooseSwapMinImageCount(vk::SurfaceCapabilitiesKHR const& sur
 std::vector<char> Renderer::readFile(const std::string& filename) {
 	std::ifstream file(filename, std::ios::ate | std::ios::binary);
 	if (!file.is_open()) {
-		throw std::runtime_error("Failed to open file!");
+		throw std::runtime_error("Failed to open file! " + filename);
 	}
 
 	std::vector<char> buffer(file.tellg());

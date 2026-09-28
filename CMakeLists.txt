@@ -110,6 +110,7 @@ set(SHADER_FILES
   shader.slang
   skybox.slang
   shadow.slang
+  skin.slang
 )
 
 set(SHADER_OUTPUTS)
@@ -124,6 +125,8 @@ foreach(SHADER_FILE IN LISTS SHADER_FILES)
 
   if(SHADER_NAME STREQUAL "shadow")
     SET(SHADER_ENTRY_POINTS -entry vertMain)
+  elseif(SHADER_NAME STREQUAL "skin")
+    SET(SHADER_ENTRY_POINTS -entry main)
   else()
     SET(SHADER_ENTRY_POINTS -entry vertMain -entry fragMain)
   endif()

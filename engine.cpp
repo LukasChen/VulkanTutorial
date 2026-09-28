@@ -77,6 +77,28 @@ void Engine::mainLoop() {
 	}
 }
 
+Entity Engine::addMeshEntity(size_t meshHandle, MaterialHandle matHandle = INVALID_MATERIAL) {
+	Entity entity = m_registry.create();
+
+	if (matHandle == INVALID_MATERIAL) { 
+		matHandle = m_resourceManager.getDefaultMaterialHandle();
+	}
+
+	m_registry.get<MeshRenderer>().addComponent(entity, MeshRenderer(meshHandle, matHandle));
+	m_renderer.createMeshEntity(entity);
+
+	return entity;
+}
+
+Entity Engine::addSkinMeshEntity(size_t skinMeshHandle) {
+	Entity entity = m_registry.create();
+
+	m_registry.get<SkinMeshRenderer>().addComponent(entity, SkinMeshRenderer(skinMeshHandle));
+	m_renderer.createSkinMeshEntity(entity);
+
+	return entity;
+}
+
 Entity Engine::addCamera() {
 	const Entity camera = m_registry.create();
 	addTransform(camera, {

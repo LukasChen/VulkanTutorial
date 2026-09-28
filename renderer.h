@@ -105,6 +105,45 @@ struct InstanceBatchKeyHash {
 	}
 };
 
+struct SkinFrameResource {
+	vk::raii::Buffer jointMatrixBuffer = nullptr;
+	vk::raii::DeviceMemory jointMatrixMemory = nullptr;
+	void* jointMatrixMapped = nullptr;
+
+	vk::raii::Buffer outputVertexBuffer = nullptr;
+	vk::raii::DeviceMemory outputVertexMemory = nullptr;
+
+	vk::raii::DescriptorSet descriptorSet = nullptr;
+};
+
+struct SkinMeshResources {
+	vk::raii::Buffer inputVertexBuffer = nullptr;
+	vk::raii::DeviceMemory inputVertexMemory = nullptr;
+	
+	vk::raii::Buffer jointIndexBuffer = nullptr;
+	vk::raii::DeviceMemory jointIndexMemory = nullptr;
+
+	vk::raii::Buffer weightBuffer = nullptr;
+	vk::raii::DeviceMemory weightMemory = nullptr;
+
+	vk::raii::Buffer indexBuffer = nullptr;
+	vk::raii::DeviceMemory indexMemory = nullptr;
+
+	uint32_t vertexCount = 0;
+	uint32_t indexCount = 0;
+	uint32_t jointCount = 0;
+};
+
+struct SkinInstance {
+	Entity entity = INVALID_ENTITY;
+
+	size_t skinMeshHandle;
+	uint32_t vertexCount;
+	uint32_t jointCount;
+
+	uint32_t instanceIndex = 0;
+};
+
 struct ShadowResources {
 	vk::raii::Image image = nullptr;
 	vk::raii::DeviceMemory memory = nullptr;
@@ -123,6 +162,7 @@ struct FrameResources {
 	vk::raii::DeviceMemory instanceBufferMemory = nullptr;
 	void* instanceBufferMapped = nullptr;
 	size_t instanceCapacity = 0;
+	std::vector<SkinFrameResource> skinInstances;
 
 	ShadowResources shadow;
 };
@@ -163,10 +203,15 @@ struct MaterialPushConstants {
 	glm::vec4 baseColor;
 };
 
+struct SkinPushConstants {
+	uint32_t vertexCount;
+};
+
 enum class GraphicsPipelineId : size_t {
 	Mesh,
 	Skybox,
 	Shadow,
+	Skin,
 	Count
 };
 
@@ -181,8 +226,10 @@ public:
 	~Renderer();
 
 	void createMeshEntity(Entity entity);
+	void createSkinMeshEntity(Entity entity);
 	void rebuildInstanceBatches();
 	size_t uploadMesh(const Model& meshData);
+	size_t uploadSkinnedMesh(const Model& model);
 	size_t uploadTexture(const stbi_uc* pixels, int width, int height);
 	size_t uploadHDRTexture(const float* pixels, int width, int height);
 	void drawFrame(const Scene& scene);
@@ -205,10 +252,12 @@ private:
 	vk::SurfaceFormatKHR m_swapChainSurfaceFormat;
 	std::vector<SwapchainData> m_swapchainData;
 	std::vector<GraphicsPipelineResources> m_graphicsPipelines;
+	GraphicsPipelineResources m_skinPipeline;
 	vk::raii::CommandPool m_commandPool = nullptr;
 	vk::raii::CommandPool m_transferCommandPool = nullptr;
 	vk::raii::DescriptorSetLayout m_descriptorSetLayout = nullptr;
 	vk::raii::DescriptorSetLayout m_materialDescriptorSetLayout = nullptr;
+	vk::raii::DescriptorSetLayout m_skinDescriptorSetLayout = nullptr;
 	vk::raii::DescriptorPool m_descriptorPool = nullptr;
 	std::vector<FrameData> m_frames;
 	uint32_t m_frameIndex = 0;
@@ -220,8 +269,10 @@ private:
 	std::vector<MeshResources> m_meshResources;
 	std::vector<TextureResources> m_textureResources;
 	std::vector<InstanceBatch> m_instanceBatches;
+	std::vector<SkinMeshResources> m_skinMeshes;
 	std::unordered_map<InstanceBatchKey, uint32_t, InstanceBatchKeyHash> m_instanceBatchToIndex;
 	size_t m_instanceCount = 0;
+	size_t m_skinResourceCount = 0;
 
 	vk::raii::Image m_textureImage = nullptr;
 	vk::raii::DeviceMemory m_textureImageMemory = nullptr;
@@ -285,8 +336,15 @@ private:
 	void createFrameDescriptors();
 	void createCommandBuffer();
 	void createSyncObjects();
+	SkinFrameResource createSkinFrameResource(const SkinMeshResources& mesh);
+	void createSkinDescriptorSet(SkinFrameResource& frame, const SkinMeshResources& mesh);
 	void createSkybox();
+	void createSkinPipeline();
+	void writeSkinBarrier();
 	void recordCommandBuffer(uint32_t imageIndex);
+	void recordShadowPass(const vk::raii::CommandBuffer& commandBuffer, FrameResources& frameResources);
+	void recordSkinMeshPass(const vk::raii::CommandBuffer& commandBuffer, FrameResources& frameResources);
+	void recordSkinningDispatches(const vk::raii::CommandBuffer& commandBuffer, std::span<const SkinFrameResource> frameSkin);
 	void transition_image_layout(
 		vk::Image image,
 		vk::ImageLayout oldLayout,

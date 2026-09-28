@@ -74,6 +74,10 @@ public:
         return data[m_entityToIndex.at(entity)];
     }
 
+    T& getByIndex(size_t index) {
+        return data[index];
+    }
+
     T* tryGet(Entity entity) {
         auto it = m_entityToIndex.find(entity);
         if (it != m_entityToIndex.end()) {

@@ -32,6 +32,9 @@ public:
 
 	void addTransform(Entity entity, TransData transform, Entity parent = INVALID_ENTITY);
 
+	Entity addMeshEntity(size_t meshHandle, size_t matHandle);
+	Entity addSkinMeshEntity(size_t skinMeshHandle);
+
 private:
 	GLFWwindow* m_window = nullptr;
 	bool m_glfwInitialized = false;
