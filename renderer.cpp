@@ -975,19 +975,32 @@ void Renderer::createGraphicsPipelines() {
 		Vertex::getBindingDescription()
 	};
 
+	std::array<vk::PipelineShaderStageCreateInfo, 2> skyboxStages = {{
+		{
+			.stage = vk::ShaderStageFlagBits::eVertex,
+			.module = skyboxShaderModule,
+			.pName = "vertMain"
+		},
+		{
+			.stage = vk::ShaderStageFlagBits::eFragment,
+			.module = skyboxShaderModule,
+			.pName = "fragMain"
+		}
+	}};
+
 
 	m_graphicsPipelines[static_cast<size_t>(GraphicsPipelineId::Skybox)] = createGraphicsPipeline(
-		skyboxShaderModule,
-		"vertMain",
-		"fragMain",
+		skyboxStages,
 		skyboxBindingDescriptions,
 		vertexAttributeDescriptions,
 		descriptorSetLayouts,
+		m_swapChainSurfaceFormat.format,
+		findDepthFormat(),
 		vk::CullModeFlagBits::eNone,
-		vk::False,
-		vk::CompareOp::eLessOrEqual
+		vk::True,
+		vk::CompareOp::eLessOrEqual,
+		vk::False
 	);
-
 
 	std::vector<char> shadowShaderCode = readFile("shaders/shadow.spv");
 	vk::raii::ShaderModule shadowShaderModule = createShaderModule(shadowShaderCode);
@@ -1300,10 +1313,19 @@ GraphicsPipelineResources Renderer::createGraphicsPipeline(
 		.pDynamicStates = dynamicStates.data()
 	};
 
+	constexpr vk::PushConstantRange materialPushConstantRange {
+		.stageFlags = vk::ShaderStageFlagBits::eFragment,
+		.offset = 0,
+		.size = sizeof(MaterialPushConstants)
+	};
+
 	vk::PipelineLayoutCreateInfo pipelineLayoutInfo{
 		.setLayoutCount = static_cast<uint32_t>(descriptorSetLayouts.size()),
-		.pSetLayouts = descriptorSetLayouts.data()
+		.pSetLayouts = descriptorSetLayouts.data(),
+		.pushConstantRangeCount = 1,
+		.pPushConstantRanges = &materialPushConstantRange
 	};
+
 	GraphicsPipelineResources pipelineResources{
 		.layout = vk::raii::PipelineLayout(m_device, pipelineLayoutInfo)
 	};
