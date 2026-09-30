@@ -1,9 +1,14 @@
 #include "resourceManager.h"
+#include <algorithm>
 #include <iostream>
 #include <sstream>
 #include <fstream>
 #include <map>
+#include <stdexcept>
 #include <tuple>
+
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/quaternion.hpp>
 
 #define TINYGLTF_NO_STB_IMAGE_WRITE
 #define TINYGLTF_IMPLEMENTATION
@@ -57,22 +62,96 @@ glm::mat4 readInverseBindMatrix(
     return result;
 }
 
-glm::mat4 readNodeLocalTransform(const tinygltf::Node& node) {
-    glm::mat4 result(1.0f);
+std::vector<float> readAnimationTimes(
+    const tinygltf::Model& model,
+    const tinygltf::Accessor& accessor
+) {
+    if (accessor.type != TINYGLTF_TYPE_SCALAR ||
+        accessor.componentType != TINYGLTF_COMPONENT_TYPE_FLOAT) {
+        throw std::runtime_error("Animation input accessor must be float scalar");
+    }
+
+    std::vector<float> times;
+    times.reserve(accessor.count);
+    for (size_t key = 0; key < accessor.count; key++) {
+        const unsigned char* data = accessorElement(model, accessor, key);
+        times.push_back(*reinterpret_cast<const float*>(data));
+    }
+    return times;
+}
+
+std::vector<glm::vec4> readAnimationValues(
+    const tinygltf::Model& model,
+    const tinygltf::Accessor& accessor
+) {
+    if (accessor.componentType != TINYGLTF_COMPONENT_TYPE_FLOAT ||
+        (accessor.type != TINYGLTF_TYPE_VEC3 && accessor.type != TINYGLTF_TYPE_VEC4)) {
+        throw std::runtime_error("Animation output accessor must be float Vec3 or Vec4");
+    }
+
+    const size_t componentCount = accessor.type == TINYGLTF_TYPE_VEC3 ? 3 : 4;
+    std::vector<glm::vec4> values;
+    values.reserve(accessor.count);
+    for (size_t key = 0; key < accessor.count; key++) {
+        const unsigned char* data = accessorElement(model, accessor, key);
+        const float* components = reinterpret_cast<const float*>(data);
+        glm::vec4 value(0.0f);
+        for (size_t component = 0; component < componentCount; component++) {
+            value[component] = components[component];
+        }
+        values.push_back(value);
+    }
+    return values;
+}
+
+glm::mat4 readNodeLocalMatrix(const tinygltf::Node& node) {
     if (node.matrix.size() == 16) {
+        glm::mat4 result;
         std::memcpy(&result, node.matrix.data(), sizeof(glm::mat4));
         return result;
-    } 
+    }
 
-    result = glm::translate(result, glm::vec3(node.translation[0], node.translation[1], node.translation[2]));
-    result *= glm::mat4_cast(glm::quat(node.rotation[0], node.rotation[1], node.rotation[2], node.rotation[3]));
-    result = glm::scale(result, glm::vec3(node.scale[0], node.scale[1], node.scale[2]));
+    const glm::vec3 translation = node.translation.size() == 3
+        ? glm::vec3(node.translation[0], node.translation[1], node.translation[2])
+        : glm::vec3(0.0f);
+    const glm::quat rotation = node.rotation.size() == 4
+        ? glm::quat(node.rotation[3], node.rotation[0], node.rotation[1], node.rotation[2])
+        : glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
+    const glm::vec3 scale = node.scale.size() == 3
+        ? glm::vec3(node.scale[0], node.scale[1], node.scale[2])
+        : glm::vec3(1.0f);
 
-    return result;
+    return glm::translate(glm::mat4(1.0f), translation) *
+           glm::mat4_cast(rotation) *
+           glm::scale(glm::mat4(1.0f), scale);
+}
+
+JointPose readNodeLocalTransform(const tinygltf::Node& node) {
+    const glm::vec3 translation = node.translation.size() == 3
+        ? glm::vec3(node.translation[0], node.translation[1], node.translation[2])
+        : glm::vec3(0.0f);
+    const glm::quat rotation = node.rotation.size() == 4
+        ? glm::quat(node.rotation[3], node.rotation[0], node.rotation[1], node.rotation[2])
+        : glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
+    const glm::vec3 scale = node.scale.size() == 3
+        ? glm::vec3(node.scale[0], node.scale[1], node.scale[2])
+        : glm::vec3(1.0f);
+
+    return {
+        translation,
+        rotation,
+        scale
+    };
 }
 
 ResourceManager::ResourceManager() {
     createDefaultMaterial();
+}
+
+AnimationAssetHandle ResourceManager::createAnimationAsset() {
+    AnimationAssetHandle handle = m_animationAssets.size();
+    m_animationAssets.emplace_back();
+    return handle;
 }
 
 
@@ -208,39 +287,201 @@ Model ResourceManager::loadGltf(const std::string& filename) {
         }
     }
 
-    if (skinIndex > 0) {
-        model.skeleton.emplace();
+    if (skinIndex >= 0) {
+        model.animaitonAssetHandle = createAnimationAsset();
+        AnimationAsset& animationAsset = m_animationAssets[model.animaitonAssetHandle];
 
         const tinygltf::Skin& gltfSkin = gltfModel.skins[skinIndex];
 
-        SkeletonData& skeleton = *model.skeleton;
+        std::vector<int32_t> nodeParents(gltfModel.nodes.size(), -1);
+        for (size_t parentIndex = 0; parentIndex < gltfModel.nodes.size(); parentIndex++) {
+            for (int childIndex : gltfModel.nodes[parentIndex].children) {
+                nodeParents[static_cast<size_t>(childIndex)] = static_cast<int32_t>(parentIndex);
+            }
+        }
+
+        SkeletonData& skeleton = animationAsset.skeleton;
 
         skeleton.rootNode = gltfSkin.skeleton;
         skeleton.joints.reserve(gltfSkin.joints.size());
 
+        std::unordered_map<uint32_t, uint32_t> nodeToJoint;
+
         for (size_t jointSlot = 0; jointSlot < gltfSkin.joints.size(); jointSlot++) {
             const uint32_t nodeIndex = static_cast<uint32_t>(gltfSkin.joints[jointSlot]);
+
+            const auto transform = readNodeLocalTransform(gltfModel.nodes.at(nodeIndex));
 
             skeleton.joints.push_back({
                 .nodeIndex = nodeIndex,
                 .parentJoint = -1,
-                .bindLocal = readNodeLocalTransform(gltfModel.nodes.at(nodeIndex)),
-                .inverseBind = readInverseBindMatrix(gltfModel, gltfSkin, jointSlot)
+                .inverseBind = readInverseBindMatrix(gltfModel, gltfSkin, jointSlot),
+                .bindTranslation = transform.translate,
+                .bindRotation = transform.rotation,
+                .bindScale = transform.scale
             });
 
-            for (int i = 0; i < gltfModel.nodes[nodeIndex].children.size(); i++) {
-                const uint32_t nodeIndex = skeleton.joints[jointSlot].nodeIndex;
+            nodeToJoint.emplace(nodeIndex, static_cast<uint32_t>(jointSlot));
+        }
 
-                for (int possibleParent = 0; possibleParent < gltfModel.nodes.size(); possibleParent++) {
-                    const uint32_t parentNode = skeleton.joints[possibleParent].nodeIndex;
+        for (size_t parentSlot = 0; parentSlot < skeleton.joints.size(); parentSlot++) {
+            const uint32_t parentNodeIndex = skeleton.joints[parentSlot].nodeIndex;
 
-                    const auto& children = gltfModel.nodes.at(parentNode).children;
-                    if (std::find(children.begin(), children.end(), nodeIndex) != children.end()) {
-                        skeleton.joints[jointSlot].parentJoint = possibleParent;
-                        break;
-                    }
+            const tinygltf::Node& parentNode = gltfModel.nodes.at(parentNodeIndex);
+
+            for (int childNodeIndex : parentNode.children) {
+                const auto childIt = nodeToJoint.find(static_cast<uint32_t>(childNodeIndex));
+
+                if (childIt == nodeToJoint.end()) {
+                    continue;
                 }
+
+                const uint32_t childSlot = childIt->second;
+
+                SkeletonJoint& child = skeleton.joints[childSlot];
+
+                if (child.parentJoint >= 0) {
+                    throw std::runtime_error("Skeleton Joint has multiple parents");
+                }
+
+                child.parentJoint = static_cast<uint32_t>(parentSlot);
+                skeleton.joints[parentSlot].children.push_back(childSlot);
             }
+        }
+
+        bool rootTransformSet = false;
+        for (const SkeletonJoint& joint : skeleton.joints) {
+            if (joint.parentJoint >= 0) {
+                continue;
+            }
+
+            glm::mat4 rootTransform(1.0f);
+            int32_t parentNodeIndex = nodeParents[joint.nodeIndex];
+
+            while (parentNodeIndex >= 0 &&
+                   !nodeToJoint.contains(static_cast<uint32_t>(parentNodeIndex))) {
+                rootTransform =
+                    readNodeLocalMatrix(gltfModel.nodes.at(static_cast<size_t>(parentNodeIndex))) *
+                    rootTransform;
+                parentNodeIndex = nodeParents[static_cast<size_t>(parentNodeIndex)];
+            }
+
+            if (!rootTransformSet) {
+                skeleton.rootTransform = rootTransform;
+                rootTransformSet = true;
+            }
+        }
+
+        std::vector<uint8_t> state(skeleton.joints.size(), 0);
+
+        auto visit = [&](auto&& self, uint32_t jointSlot) -> void {
+            if (state[jointSlot] == 2) {
+                return;
+            }
+
+            if (state[jointSlot] == 1) {
+                throw std::runtime_error("Skeleton Joint has a cycle");
+            }
+
+            state[jointSlot] = 1;
+            skeleton.evaluationOrder.push_back(jointSlot);
+
+            for(uint32_t childSlot : skeleton.joints[jointSlot].children) {
+                self(self, childSlot);
+            }
+
+            state[jointSlot] = 2;
+        };
+
+        for (uint32_t jointSlot = 0; jointSlot < skeleton.joints.size(); jointSlot++) {
+            if (skeleton.joints[jointSlot].parentJoint < 0) {
+                visit(visit, jointSlot);
+            }
+        }
+
+        if (skeleton.evaluationOrder.size() != skeleton.joints.size()) {
+            throw std::runtime_error("Skeleton contains unreachable joints");
+        }
+    }
+
+    if (!gltfModel.animations.empty()) {
+        if (model.animaitonAssetHandle == INVALID_ANIMATION_ASSET) {
+            throw std::runtime_error("Animated glTF must have a skin");
+        }
+
+        std::map<uint32_t, uint32_t> jointSlots;
+        AnimationAsset& animationAsset = m_animationAssets[model.animaitonAssetHandle];
+        for (size_t joint = 0; joint < animationAsset.skeleton.joints.size(); joint++) {
+            jointSlots.emplace(animationAsset.skeleton.joints[joint].nodeIndex, static_cast<uint32_t>(joint));
+        }
+
+        animationAsset.clips.reserve(gltfModel.animations.size());
+        std::cout << "Loading Animations: " << gltfModel.animations.size() << "\n";
+        for (size_t animationIndex = 0; animationIndex < gltfModel.animations.size(); animationIndex++) {
+            const tinygltf::Animation& gltfAnimation = gltfModel.animations[animationIndex];
+            AnimationClip clip;
+            clip.name = gltfAnimation.name.empty()
+                ? "Animation" + std::to_string(animationIndex)
+                : gltfAnimation.name;
+            clip.channels.reserve(gltfAnimation.channels.size());
+            std::cout << "Loading Channel: " << clip.name << "\n";
+
+            for (const tinygltf::AnimationChannel& gltfChannel : gltfAnimation.channels) {
+                if (gltfChannel.target_node < 0) {
+                    throw std::runtime_error("Animation channel has no target node");
+                }
+
+                const auto jointIt = jointSlots.find(static_cast<uint32_t>(gltfChannel.target_node));
+                if (jointIt == jointSlots.end()) {
+                    throw std::runtime_error("Animation channel targets a node outside the skin");
+                }
+
+                const tinygltf::AnimationSampler& gltfSampler =
+                    gltfAnimation.samplers.at(gltfChannel.sampler);
+
+                Interpolation interpolation;
+                if (gltfSampler.interpolation.empty() || gltfSampler.interpolation == "LINEAR") {
+                    interpolation = Interpolation::Linear;
+                } else if (gltfSampler.interpolation == "STEP") {
+                    interpolation = Interpolation::Step;
+                } else {
+                    throw std::runtime_error(
+                        "Animation interpolation not supported: " + gltfSampler.interpolation);
+                }
+
+                AnimationPath path;
+                if (gltfChannel.target_path == "translation") {
+                    path = AnimationPath::Translation;
+                } else if (gltfChannel.target_path == "rotation") {
+                    path = AnimationPath::Rotation;
+                } else if (gltfChannel.target_path == "scale") {
+                    path = AnimationPath::Scale;
+                } else {
+                    throw std::runtime_error(
+                        "Animation target path not supported: " + gltfChannel.target_path);
+                }
+
+                AnimationChannel channel {
+                    .joint = jointIt->second,
+                    .path = path,
+                    .interpolation = interpolation,
+                    .times = readAnimationTimes(
+                        gltfModel,
+                        gltfModel.accessors.at(gltfSampler.input)),
+                    .values = readAnimationValues(
+                        gltfModel,
+                        gltfModel.accessors.at(gltfSampler.output))
+                };
+
+                if (channel.times.size() != channel.values.size() || channel.times.empty()) {
+                    throw std::runtime_error("Animation sampler input/output counts do not match");
+                }
+
+                clip.duration = std::max(clip.duration, channel.times.back());
+                clip.channels.push_back(std::move(channel));
+            }
+
+            animationAsset.clips.push_back(std::move(clip));
         }
     }
 
@@ -302,6 +543,9 @@ Model ResourceManager::loadGltf(const std::string& filename) {
                     continue;
                 }
 
+
+                AnimationAsset& animationAsset = m_animationAssets[model.animaitonAssetHandle];
+
                 const unsigned char* jointData = accessorElement(gltfModel, *jointAccessor, i);
                 const unsigned char* weightData = accessorElement(gltfModel, *weightAccessor, i);
 
@@ -322,7 +566,7 @@ Model ResourceManager::loadGltf(const std::string& filename) {
                         throw std::runtime_error("Joint component type not supported.");
                     }
 
-                    if (joints[component] >= model.skeleton->joints.size()) {
+                    if (joints[component] >= animationAsset.skeleton.joints.size()) {
                         throw std::runtime_error("Vertex references a joint outside the gltf skin");
                     }
 
@@ -410,6 +654,10 @@ size_t ResourceManager::duplicateMaterial(MaterialHandle handle) {
 
 Material& ResourceManager::getMaterial(MaterialHandle handle) {
     return m_materials[handle];
+}
+
+AnimationAsset& ResourceManager::getAnimationAsset(AnimationAssetHandle handle) {
+    return m_animationAssets[handle];
 }
 
 void ResourceManager::createDefaultMaterial() {

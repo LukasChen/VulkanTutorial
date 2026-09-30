@@ -1,0 +1,25 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Debug VulkanTutorial",
+            "type": "cppvsdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/VulkanTutorial/Debug/VulkanTutorial.exe",
+            "args": [],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}/build/VulkanTutorial/Debug",
+            "console": "integratedTerminal",
+            "preLaunchTask": "build-debug",
+            "exceptionBreakpointFilters": [
+                {
+                    "name": "cpp_exception",
+                    "filter": "cpp_exception",
+                    "label": "C++ Exceptions",
+                    "description": "Break when a C++ exception is thrown",
+                    "default": true
+                }
+            ]
+        }
+    ]
+}

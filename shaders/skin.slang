@@ -1,7 +1,8 @@
 struct SkinVertex {
-    float3 position;
-    float3 normal;
-    float2 texCoords;
+    // Match the 32-byte C++ Vertex layout. Using float3 members here makes
+    // std430 give the structure a 48-byte array stride.
+    float4 positionNormalX;
+    float4 normalYZTexCoords;
 };
 
 struct SkinJointIndices {
@@ -44,6 +45,13 @@ void main(uint3 dispatchThreadID: SV_DispatchThreadID) {
 
     SkinVertex vertex = input[vertexIndex];
 
+    float3 position = vertex.positionNormalX.xyz;
+    float3 normal = float3(
+        vertex.positionNormalX.w,
+        vertex.normalYZTexCoords.xy
+    );
+    float2 texCoords = vertex.normalYZTexCoords.zw;
+
     uint4 joints = jointIndices[vertexIndex].indices;
     float4 weights = jointWeights[vertexIndex].value;
 
@@ -55,9 +63,11 @@ void main(uint3 dispatchThreadID: SV_DispatchThreadID) {
 
     SkinVertex output;
 
-    output.position = mul(skinMatrix, float4(vertex.position, 1.0)).xyz;
-    output.normal = mul(skinMatrix, float4(vertex.normal, 0.0)).xyz;
-    output.texCoords = vertex.texCoords;
+    float3 skinnedPosition = mul(skinMatrix, float4(position, 1.0)).xyz;
+    float3 skinnedNormal = mul(skinMatrix, float4(normal, 0.0)).xyz;
+
+    output.positionNormalX = float4(skinnedPosition, skinnedNormal.x);
+    output.normalYZTexCoords = float4(skinnedNormal.yz, texCoords);
 
     outputs[vertexIndex] = output;
 }

@@ -55,4 +55,14 @@ struct Camera {
     float sensitivity;
 };
 
+struct Animator {
+    size_t assetHandle;
+    uint32_t clipIndex = 0;
+    float time = 0.0f;
+    float speed = 1.0f;
+    bool playing = true;
+    bool looping = true;
+    std::vector<glm::mat4> jointPalette;
+};
+
 struct Light {};

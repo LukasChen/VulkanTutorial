@@ -11,6 +11,12 @@ constexpr MaterialHandle INVALID_MATERIAL = std::numeric_limits<MaterialHandle>:
 using TextureHandle = size_t;
 constexpr TextureHandle INVALID_TEXTURE = std::numeric_limits<TextureHandle>::max();
 
+struct JointPose {
+    glm::vec3 translate;
+    glm::quat rotation;
+    glm::vec3 scale;
+};
+
 struct Material {
     TextureHandle textureHandle = INVALID_TEXTURE;
     glm::vec4 baseColor;
@@ -23,6 +29,7 @@ public:
     MaterialHandle createMaterial(Material material);
     MaterialHandle duplicateMaterial(size_t handle);
     Material& getMaterial(size_t handle);
+    AnimationAsset& getAnimationAsset(AnimationAssetHandle handle);
 
     Model loadStaticModel(const std::string& path, ModelLoaderType type);
     Mesh loadSkinModel(const std::string& path);
@@ -30,8 +37,10 @@ public:
     inline MaterialHandle getDefaultMaterialHandle() { return m_defaultMaterial; }
 private:
     std::vector<Material> m_materials;
+    std::vector<AnimationAsset> m_animationAssets;
     MaterialHandle m_defaultMaterial;
     void createDefaultMaterial();
+    AnimationAssetHandle createAnimationAsset();
 
     Model loadObj(const std::string& filename);
     Model loadGltf(const std::string& filename);

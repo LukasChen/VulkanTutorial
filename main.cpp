@@ -69,8 +69,8 @@ void loadScene(Registry& reg, Engine& engine) {
 	Model monkey = resource->loadStaticModel("monkey.gltf", ModelLoaderType::GLTF);
 	size_t monkeyMeshHandle = renderer->uploadMesh(monkey);
 	MaterialHandle monkeyMaterialHandle = resource->createMaterial({INVALID_TEXTURE, glm::vec4(0.0f, 1.0f, 0, 1.0f)});
-	Entity monkeyEntity = engine.addMeshEntity(monkeyMeshHandle, monkeyMaterialHandle);
-	engine.addTransform(monkeyEntity, {glm::vec3(0.0f, 1.0f, -1.0f)});
+	// Entity monkeyEntity = engine.addMeshEntity(monkeyMeshHandle, monkeyMaterialHandle);
+	// engine.addTransform(monkeyEntity, {glm::vec3(0.0f, 1.0f, -1.0f)});
 
 	Model treeMeshData = resource->loadStaticModel("tree.obj", ModelLoaderType::Obj);
 	size_t treeMeshHandle = renderer->uploadMesh(treeMeshData);
@@ -79,6 +79,12 @@ void loadScene(Registry& reg, Engine& engine) {
 	size_t treeTextureHandle = renderer->uploadTexture(image2.pixels, image2.width, image2.height);
 	size_t treeMaterialHandle = resource->createMaterial({treeTextureHandle, glm::vec4(1.0f)});
 	stbi_image_free(image2.pixels);
+
+	Model charcterModel = resource->loadStaticModel("character.gltf", ModelLoaderType::GLTF);
+	size_t charcterMeshHandle = renderer->uploadSkinnedMesh(charcterModel);
+	Entity charcterEntity = engine.addSkinMeshEntity(charcterMeshHandle, materialHandle);
+	reg.get<Animator>().addComponent(charcterEntity, Animator(charcterModel.animaitonAssetHandle));
+	engine.addTransform(charcterEntity, {glm::vec3(0.0f, 0.0f, -2.0f), glm::vec3(0.0f, glm::radians(180.0f), 0.0f)});
 
 	for (int i = 0; i < 100; i++) {
 		for (int j = 0; j < 10; j++) {
@@ -89,10 +95,9 @@ void loadScene(Registry& reg, Engine& engine) {
 
 
 	size_t planeMeshHandle = renderer->uploadMesh(Primitive::createPlane());
-	Entity plane = engine.addMeshEntity(planeMeshHandle, materialHandle);
+	Entity plane = engine.addMeshEntity(planeMeshHandle);
 	engine.addTransform(plane, {glm::vec3(0.0f, 0.0f, 0.0f)});
 	reg.get<Transform>(plane).scale = glm::vec3(10.0f, 1.0f, 10.0f);
-	reg.get<RainbowMaterial>().addComponent(plane, RainbowMaterial{1.0f});
 }
 
 int main() {

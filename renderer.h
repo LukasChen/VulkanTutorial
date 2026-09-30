@@ -172,7 +172,7 @@ struct MeshResources {
 	vk::raii::DeviceMemory vertexBufferMemory = nullptr;
 	vk::raii::Buffer indexBuffer = nullptr;
 	vk::raii::DeviceMemory indexBufferMemory = nullptr;
-	uint16_t indiceSize;
+	uint32_t indiceSize = 0;
 };
 
 struct FrameData {
@@ -227,6 +227,7 @@ public:
 
 	void createMeshEntity(Entity entity);
 	void createSkinMeshEntity(Entity entity);
+	void setSkinPalette();
 	void rebuildInstanceBatches();
 	size_t uploadMesh(const Model& meshData);
 	size_t uploadSkinnedMesh(const Model& model);

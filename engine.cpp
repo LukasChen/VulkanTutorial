@@ -2,6 +2,7 @@
 
 #include "components/components_common.h"
 #include "game/systems/cameraSystem.h"
+#include "game/systems/animationSystem.h"
 
 #include <iostream>
 
@@ -16,6 +17,7 @@ Engine::Engine(Registry& registry)
 	  m_input(m_window) {
 	initWindow();
 	BindSystem<CameraSystem>();
+	BindSystem<AnimationSystem>();
 
 	m_mainScene = {
 		.camera = addCamera(),
@@ -77,7 +79,7 @@ void Engine::mainLoop() {
 	}
 }
 
-Entity Engine::addMeshEntity(size_t meshHandle, MaterialHandle matHandle = INVALID_MATERIAL) {
+Entity Engine::addMeshEntity(size_t meshHandle, MaterialHandle matHandle) {
 	Entity entity = m_registry.create();
 
 	if (matHandle == INVALID_MATERIAL) { 
@@ -90,7 +92,7 @@ Entity Engine::addMeshEntity(size_t meshHandle, MaterialHandle matHandle = INVAL
 	return entity;
 }
 
-Entity Engine::addSkinMeshEntity(size_t skinMeshHandle) {
+Entity Engine::addSkinMeshEntity(size_t skinMeshHandle, MaterialHandle matHandle) {
 	Entity entity = m_registry.create();
 
 	m_registry.get<SkinMeshRenderer>().addComponent(entity, SkinMeshRenderer(skinMeshHandle));

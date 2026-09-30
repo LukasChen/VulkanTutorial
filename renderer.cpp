@@ -1,6 +1,7 @@
 #include "renderer.h"
 #include "resourceUtils.h"
 
+#include <iostream>
 #include <algorithm>
 #include <cassert>
 #include <cstring>
@@ -64,7 +65,6 @@ void Renderer::createSkinMeshEntity(Entity entity) {
 	const SkinMeshResources& skinMesh = m_skinMeshes[skinMeshRend->skinMeshHandle];
 
 	skinMeshRend->skinResourceHandle = m_skinResourceCount++;
-	m_instanceCount++;
 
 	for (FrameData& frame : m_frames) {
 		SkinFrameResource frameResource = createSkinFrameResource(skinMesh);
@@ -75,6 +75,25 @@ void Renderer::createSkinMeshEntity(Entity entity) {
 		std::memcpy(frameResource.jointMatrixMapped, jointMatrices.data(), jointMatrices.size() * sizeof(glm::mat4));
 
 		frame.resources.skinInstances.push_back(std::move(frameResource));
+	}
+}
+
+void Renderer::setSkinPalette() {
+	FrameResources& frameResources = currentFrame().resources;
+
+	for (auto [animator, skinMeshRenderer] : m_registry.view<Animator, SkinMeshRenderer>()) {
+		const SkinMeshResources& skinMesh = m_skinMeshes[skinMeshRenderer.skinMeshHandle];
+		SkinFrameResource& skinFrame = frameResources.skinInstances[skinMeshRenderer.skinResourceHandle];
+
+		if (animator.jointPalette.size() != skinMesh.jointCount) {
+			throw std::runtime_error("Animator palette does not match the skinned mesh skeleton");
+		}
+
+		std::memcpy(
+			skinFrame.jointMatrixMapped,
+			animator.jointPalette.data(),
+			animator.jointPalette.size() * sizeof(glm::mat4)
+		);
 	}
 }
 
@@ -203,7 +222,7 @@ size_t Renderer::uploadMesh(const Model& model) {
 		std::move(vertexBufferMemory),
 		std::move(indexBuffer),
 		std::move(indexBufferMemory),
-		static_cast<uint16_t>(mesh.indices.size())
+		static_cast<uint32_t>(mesh.indices.size())
 	);
 
 	return m_meshResources.size() - 1;
@@ -215,6 +234,7 @@ size_t Renderer::uploadSkinnedMesh(const Model& model) {
 	}
 
 	const Mesh& mesh = model.mesh;
+	const AnimationAsset& animationAsset = m_resource.getAnimationAsset(model.animaitonAssetHandle);
 	const vk::DeviceSize vertexBufferSize = mesh.vertices.size() * sizeof(Vertex);
 	auto [vertexBuffer, vertexBufferMemory] = createMeshBuffer(
 		vertexBufferSize,
@@ -252,9 +272,9 @@ size_t Renderer::uploadSkinnedMesh(const Model& model) {
 		.weightMemory = std::move(weightBufferMemory),
 		.indexBuffer = std::move(indexBuffer),
 		.indexMemory = std::move(indexBufferMemory),
-		.vertexCount = static_cast<uint16_t>(mesh.vertices.size()),
-		.indexCount = static_cast<uint16_t>(mesh.indices.size()),
-		.jointCount = static_cast<uint32_t>(model.skeleton->joints.size()),
+		.vertexCount = static_cast<uint32_t>(mesh.vertices.size()),
+		.indexCount = static_cast<uint32_t>(mesh.indices.size()),
+		.jointCount = static_cast<uint32_t>(animationAsset.skeleton.joints.size()),
 	};
 
 	m_skinMeshes.push_back(std::move(skinMesh));
@@ -462,25 +482,33 @@ void Renderer::updateFrameResources(const Scene& scene) {
 	};
 	memcpy(frameResources.uniformBufferMapped, &ubo, sizeof(ubo));
 
-	if (m_instanceCount == 0) {
+	auto skinView = m_registry.view<SkinMeshRenderer, Transform>();
+	size_t skinInstanceCount = 0;
+	for (auto it = skinView.begin(); it != skinView.end(); ++it) {
+		skinInstanceCount++;
+	}
+
+	const size_t totalInstanceCount = m_instanceCount + skinInstanceCount;
+	if (totalInstanceCount == 0) {
 		return;
 	}
 
-	if (frameResources.instanceCapacity < m_instanceCount) {
+	if (frameResources.instanceCapacity < totalInstanceCount) {
 		if (frameResources.instanceBufferMemory != nullptr && frameResources.instanceBufferMapped != nullptr) {
 			frameResources.instanceBufferMemory.unmapMemory();
 			frameResources.instanceBufferMapped = nullptr;
 		}
 
+		const vk::DeviceSize bufferSize = sizeof(InstanceData) * totalInstanceCount;
 		auto [buffer, bufferMem] = createBuffer(
-			sizeof(InstanceData) * m_instanceCount * 2,
+			bufferSize,
 			vk::BufferUsageFlagBits::eVertexBuffer,
 			vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent
 		);
 		frameResources.instanceBuffer = std::move(buffer);
 		frameResources.instanceBufferMemory = std::move(bufferMem);
-		frameResources.instanceBufferMapped = frameResources.instanceBufferMemory.mapMemory(0, sizeof(InstanceData) * m_instanceCount);
-		frameResources.instanceCapacity = m_instanceCount;
+		frameResources.instanceBufferMapped = frameResources.instanceBufferMemory.mapMemory(0, bufferSize);
+		frameResources.instanceCapacity = totalInstanceCount;
 	}
 
 	std::vector<uint32_t> instanceWriteOffsets(m_instanceBatches.size(), 0);
@@ -525,11 +553,10 @@ void Renderer::updateFrameResources(const Scene& scene) {
 	}
 
 
-	auto skinView = m_registry.view<Transform, SkinMeshRenderer>();
-	uint32_t skinInstanceIndex = m_instanceBatches.size();
+	uint32_t skinInstanceIndex = static_cast<uint32_t>(m_instanceCount);
 
 	for (auto it = skinView.begin(); it != skinView.end(); ++it) {
-		auto [transform, skinMesh] = *it;
+		auto [skinMesh, transform] = *it;
 
 		const glm::mat4 model = transforms.matrix(it.entity());
 		const glm::mat3 normalMatrix = glm::transpose(glm::inverse(glm::mat3(model)));
@@ -569,6 +596,7 @@ void Renderer::drawFrame(const Scene& scene) {
 	m_device.resetFences(*frame.inFlightFence);
 	frame.commandBuffer.reset();
 	updateFrameResources(scene);
+	setSkinPalette();
 	recordCommandBuffer(imageIndex);
 
 	vk::PipelineStageFlags waitDestinationStageMask(vk::PipelineStageFlagBits::eColorAttachmentOutput);
@@ -597,7 +625,7 @@ void Renderer::drawFrame(const Scene& scene) {
 		m_framebufferResized) {
 		recreateSwapChain();
 	} else {
-		assert(result == vk::Result::eSuccess);
+		assert(presentResult == vk::Result::eSuccess);
 	}
 
 	m_frameIndex = (m_frameIndex + 1) % MAX_FRAMES_IN_FLIGHT;
@@ -1936,6 +1964,24 @@ void Renderer::recordShadowPass(const vk::raii::CommandBuffer& commandBuffer, Fr
 		commandBuffer.drawIndexed(meshResource.indiceSize, batch.instanceCount, 0, 0, batch.firstInstance);
 	}
 
+	size_t firstInstance = m_instanceCount;
+	for (auto [skinMeshRenderer, Transform] : m_registry.view<SkinMeshRenderer, Transform>()) {
+		const SkinMeshResources& mesh = m_skinMeshes[skinMeshRenderer.skinMeshHandle];
+		const SkinFrameResource& skinFrame = frameResources.skinInstances[skinMeshRenderer.skinResourceHandle];
+
+		std::array vertexBuffers = {*skinFrame.outputVertexBuffer, *frameResources.instanceBuffer};
+
+		commandBuffer.bindVertexBuffers(
+			0,
+			vertexBuffers,
+			std::array<vk::DeviceSize, 2>{0,0}
+		);
+		commandBuffer.bindIndexBuffer(*mesh.indexBuffer, 0, vk::IndexType::eUint16);
+
+		commandBuffer.drawIndexed(mesh.indexCount, 1, 0, 0, firstInstance);
+		firstInstance++;
+	}
+
 	commandBuffer.endRendering();
 
 	transition_image_layout(
@@ -1957,7 +2003,7 @@ void Renderer::recordSkinMeshPass(const vk::raii::CommandBuffer& commandBuffer, 
 
 	auto skinView = m_registry.view<SkinMeshRenderer, Transform>();
 
-	uint32_t firstInstance = m_instanceBatches.size();
+	uint32_t firstInstance = static_cast<uint32_t>(m_instanceCount);
 	for (auto [skinMeshRenderer, Transform] : skinView) {
 		const SkinMeshResources& mesh = m_skinMeshes[skinMeshRenderer.skinMeshHandle];
 		const SkinFrameResource& skinFrame = frameResources.skinInstances[skinMeshRenderer.skinResourceHandle];
