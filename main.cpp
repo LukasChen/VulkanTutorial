@@ -51,7 +51,7 @@ void loadScene(Registry& reg, Engine& engine) {
 	size_t textureHandle = renderer->uploadTexture(image.pixels, image.width, image.height);
 	stbi_image_free(image.pixels);
 
-	Model boxMeshData = resource->loadStaticModel("box.obj", ModelLoaderType::Obj);
+	Model boxMeshData = resource->loadStaticModel("./assets/box.obj", ModelLoaderType::Obj);
 	size_t boxMeshHandle = renderer->uploadMesh(boxMeshData);
 	size_t materialHandle = resource->createMaterial({textureHandle, glm::vec4(1.0f, 0, 0, 1.0f)});
 
@@ -66,7 +66,7 @@ void loadScene(Registry& reg, Engine& engine) {
 	Entity box3 = engine.addMeshEntity(boxMeshHandle, materialHandle);
 	engine.addTransform(box3, {glm::vec3(4.0f, 0.0f, 0.0f)}, box);
 
-	Model monkey = resource->loadStaticModel("monkey.gltf", ModelLoaderType::GLTF);
+	Model monkey = resource->loadStaticModel("./assets/monkey.gltf", ModelLoaderType::GLTF);
 	size_t monkeyMeshHandle = renderer->uploadMesh(monkey);
 	MaterialHandle monkeyMaterialHandle = resource->createMaterial({INVALID_TEXTURE, glm::vec4(0.0f, 1.0f, 0, 1.0f)});
 	// Entity monkeyEntity = engine.addMeshEntity(monkeyMeshHandle, monkeyMaterialHandle);
@@ -75,12 +75,12 @@ void loadScene(Registry& reg, Engine& engine) {
 	Model treeMeshData = resource->loadStaticModel("tree.obj", ModelLoaderType::Obj);
 	size_t treeMeshHandle = renderer->uploadMesh(treeMeshData);
 
-	ImageInfo image2 = loadImage("tree-normal.jpg");
+	ImageInfo image2 = loadImage("./assets/tree-normal.jpg");
 	size_t treeTextureHandle = renderer->uploadTexture(image2.pixels, image2.width, image2.height);
 	size_t treeMaterialHandle = resource->createMaterial({treeTextureHandle, glm::vec4(1.0f)});
 	stbi_image_free(image2.pixels);
 
-	Model charcterModel = resource->loadStaticModel("character.gltf", ModelLoaderType::GLTF);
+	Model charcterModel = resource->loadStaticModel("./assets/character.gltf", ModelLoaderType::GLTF);
 	size_t charcterMeshHandle = renderer->uploadSkinnedMesh(charcterModel);
 	Entity charcterEntity = engine.addSkinMeshEntity(charcterMeshHandle, materialHandle);
 	reg.get<Animator>().addComponent(charcterEntity, Animator(charcterModel.animaitonAssetHandle));

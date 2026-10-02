@@ -1367,8 +1367,6 @@ GraphicsPipelineResources Renderer::createGraphicsPipeline(
 	return pipelineResources;
 }
 
-
-
 void Renderer::createCommandPool() {
 	vk::CommandPoolCreateInfo poolInfo{
 		.flags = vk::CommandPoolCreateFlagBits::eResetCommandBuffer,

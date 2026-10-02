@@ -327,6 +327,15 @@ private:
 		vk::CompareOp depthCompareOp,
 		vk::Bool32 depthBiasEnable
 	);
+	GraphicsPipelineResources createOpaqueGraphicsPipeline(
+		std::span<const vk::PipelineShaderStageCreateInfo> shaderStages,
+		std::span<const vk::VertexInputBindingDescription> bindingDescriptions,
+		std::span<const vk::VertexInputAttributeDescription> attributeDescriptions,
+		std::span<const vk::DescriptorSetLayout> descriptorSetLayouts,
+		vk::CullModeFlags cullMode,
+		vk::CompareOp depthCompareOp,
+		vk::Bool32 depthBiasEnable
+	);
 	void createCommandPool();
 	void createTextureImage();
 	void createTextureImageView();

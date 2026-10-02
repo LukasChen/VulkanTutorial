@@ -158,6 +158,12 @@ add_custom_command(
 )
 
 # Assets
-set (ASSET_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../assets/")
-file (COPY ${ASSET_DIR}/viking_room.obj DESTINATION ${TEMPLATE_DIR}/models)
-file (COPY ${ASSET_DIR}/viking_room.png DESTINATION ${TEMPLATE_DIR}/textures)
+set (ASSET_DIR "${CMAKE_CURRENT_SOURCE_DIR}./assets")
+add_custom_command(
+  TARGET ${TEMPLATE_NAME} POST_BUILD
+  COMMAND "${CMAKE_COMMAND}" -E copy_directory
+    "${ASSET_DIR}"
+    "$<TARGET_FILE_DIR:${TEMPLATE_NAME}>/assets"
+  COMMENT "Copying assets to the runtime directory"
+  VERBATIM
+)
